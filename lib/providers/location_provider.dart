@@ -228,14 +228,18 @@ class LocationProvider extends ChangeNotifier {
     }
   }
 
-  /// Зөвхөн IP горимд ажиллах
+  /// Зөвхөн IP горимд ажиллах (fallback горим)
   void setIpOnlyMode(bool enabled) {
     _useIpOnlyMode = enabled;
     if (enabled) {
       // GPS tracking-ийг зогсоох
       stopTracking();
-      // IP-аар байршлыг тодорхойлох
+      // IP-аар байршлыг тодорхойлох (fallback)
       _startIpOnlyTracking();
+    } else {
+      // GPS горим руу шилжих
+      stopTracking();
+      startTracking();
     }
     notifyListeners();
   }
@@ -246,6 +250,7 @@ class LocationProvider extends ChangeNotifier {
       _errorMessage = null;
       _isTracking = true;
       _isLocationServiceEnabled = false;
+      _useIpOnlyMode = true; // IP-only горим идэвхжүүлэх
       
       // IP хаяг авах
       final ip = await _getIpAddress();
@@ -273,22 +278,60 @@ class LocationProvider extends ChangeNotifier {
         notifyListeners();
       }
       
-      // IP хаягийг тогтмол шинэчлэх (30 секунд тутамд)
+      // IP хаягийг тогтмол шинэчлэх (Google Maps My Location-ийн адил)
+      // Эхлээд 10 секунд хүлээгээд, дараа нь 30 секунд тутамд шинэчлэх
       _locationUpdateTimer?.cancel();
-      _locationUpdateTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+      
+      // Эхний шинэчлэлт (10 секунд хүлээгээд)
+      Future.delayed(const Duration(seconds: 10), () async {
+        if (_isTracking && _useIpOnlyMode) {
           final newIp = await _getIpAddress();
-          if (newIp != null && newIp != _currentIpAddress) {
+          if (newIp != null) {
             _currentIpAddress = newIp;
             final ipLocation = await _getLocationFromIp(newIp);
             if (ipLocation != null) {
               _currentLocation = ipLocation;
-            if (_shouldAddToHistory(_currentLocation!)) {
-              _locationHistory.add(_currentLocation!);
+              if (_shouldAddToHistory(_currentLocation!)) {
+                _locationHistory.add(_currentLocation!);
+              }
+              _lastLocationUpdateTime = DateTime.now();
+              await _saveLocations();
+              print('✅ IP хаягаар байршил шинэчлэгдлээ (эхний): ${ipLocation.latitude}, ${ipLocation.longitude}');
+              notifyListeners();
             }
-            _lastLocationUpdateTime = DateTime.now();
-            await _saveLocations();
-            print('✅ IP хаягаар байршил шинэчлэгдлээ: ${ipLocation.latitude}, ${ipLocation.longitude}');
-            notifyListeners();
+          }
+        }
+      });
+      
+      // Тогтмол шинэчлэлт (30 секунд тутамд)
+      _locationUpdateTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+        if (!_isTracking || !_useIpOnlyMode) {
+          timer.cancel();
+          return;
+        }
+        
+        final newIp = await _getIpAddress();
+        if (newIp != null) {
+          _currentIpAddress = newIp;
+          final ipLocation = await _getLocationFromIp(newIp);
+          if (ipLocation != null) {
+            // Зөвхөн байршил мэдэгдэхүйц өөрчлөгдсөн тохиолдолд шинэчлэх
+            if (_currentLocation == null || 
+                Geolocator.distanceBetween(
+                  _currentLocation!.latitude,
+                  _currentLocation!.longitude,
+                  ipLocation.latitude,
+                  ipLocation.longitude,
+                ) > 100) { // 100 метрээс их өөрчлөгдсөн бол шинэчлэх
+              _currentLocation = ipLocation;
+              if (_shouldAddToHistory(_currentLocation!)) {
+                _locationHistory.add(_currentLocation!);
+              }
+              _lastLocationUpdateTime = DateTime.now();
+              await _saveLocations();
+              print('✅ IP хаягаар байршил шинэчлэгдлээ: ${ipLocation.latitude}, ${ipLocation.longitude}');
+              notifyListeners();
+            }
           }
         }
       });
@@ -299,284 +342,122 @@ class LocationProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> startTracking() async {
-    // Зөвхөн IP горимд ажиллах
-    if (_useIpOnlyMode) {
-      await _startIpOnlyTracking();
-      return;
-    }
-    
+  /// GPS ашиглан байршлыг тодорхойлох
+  Future<void> _startGpsTracking() async {
     try {
       _errorMessage = null;
       
-      // IP хаяг авах болон IP-аар байршлыг тодорхойлох
-      _getIpAddress().then((ip) async {
-        if (ip != null) {
-          _currentIpAddress = ip;
-          
-          // IP хаягаар байршлыг тодорхойлох
-          final ipLocation = await _getLocationFromIp(ip);
-          if (ipLocation != null && _currentLocation == null) {
-            // GPS байршил байхгүй бол IP-аар олсон байршлыг ашиглах
-            _currentLocation = ipLocation;
-            if (_shouldAddToHistory(_currentLocation!)) {
-              _locationHistory.add(_currentLocation!);
-            }
-            _lastLocationUpdateTime = DateTime.now();
-            await _saveLocations();
-            print('✅ IP хаягаар байршил тодорхойллоо: ${ipLocation.latitude}, ${ipLocation.longitude}');
-            notifyListeners();
-          }
-          
-          notifyListeners();
-        }
-      });
-      
-      // Check if location services are enabled
+      // Байршлын эрхийг шалгах
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        // Try to use last known position even when service is disabled (offline mode)
-        try {
-          Position? lastKnownPos = await Geolocator.getLastKnownPosition();
-          if (lastKnownPos != null && lastKnownPos.latitude != 0.0 && lastKnownPos.longitude != 0.0) {
-            _currentLocation = LatLng(lastKnownPos.latitude, lastKnownPos.longitude);
-            if (_shouldAddToHistory(_currentLocation!)) {
-              _locationHistory.add(_currentLocation!);
-            }
-            _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
-            await _saveLocations();
-            _isTracking = true;
-            _isLocationServiceEnabled = false;
-            _errorMessage = null; // Сүүлийн мэдэгдэх байршил ашиглаж байгаа үед алдаа харуулахгүй
-            notifyListeners();
-            print('Оффлайн горим: Сүүлийн мэдэгдэх байршил ашиглалаа: ${lastKnownPos.latitude}, ${lastKnownPos.longitude}');
-            return;
-          }
-        } catch (e) {
-          print('Оффлайн горимд сүүлийн байршил авах алдаа: $e');
-        }
-        
-        // Try to use saved location
-        if (_currentLocation != null) {
-          _isTracking = true;
-          _isLocationServiceEnabled = false;
-          _errorMessage = null; // Хадгалагдсан байршил ашиглаж байгаа үед алдаа харуулахгүй
-          notifyListeners();
-          print('Оффлайн горим: Хадгалагдсан байршил ашиглалаа: ${_currentLocation!.latitude}, ${_currentLocation!.longitude}');
-          return;
-        }
-        
-        // GPS байхгүй бол IP-аар олсон байршлыг ашиглах
-        if (_currentLocation == null) {
-          // IP хаяг авах хүлээх (2 секунд)
-          await Future.delayed(const Duration(seconds: 2));
-        }
-        
-        if (_currentLocation != null) {
-          _isTracking = true;
-          _isLocationServiceEnabled = false;
-          _errorMessage = null; // IP-аар олсон байршил ашиглаж байгаа үед алдаа харуулахгүй
-          notifyListeners();
-          print('Оффлайн горим: IP хаягаар байршил тодорхойллоо: ${_currentLocation!.latitude}, ${_currentLocation!.longitude}');
-          return;
-        }
-        
-        _errorMessage = 'Байршлын үйлчилгээ идэвхгүй байна. Тохиргооноос идэвхжүүлнэ үү.';
+        _errorMessage = 'Байршлын үйлчилгээ идэвхгүй байна. Тохиргоонд оруулж идэвхжүүлнэ үү.';
         _isLocationServiceEnabled = false;
         notifyListeners();
-        
-        // Try to open location settings
-        bool serviceEnabledNow = await Geolocator.openLocationSettings();
-        if (serviceEnabledNow) {
-          // If user enabled it, try again
-          return await startTracking();
-        }
         return;
       }
-      
-      _isLocationServiceEnabled = true;
-      
-      // Check and request permission
+
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
-        
-        // Wait a bit for permission dialog
-        await Future.delayed(const Duration(milliseconds: 500));
-        
-        // Check again after user responds
-        permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          _errorMessage = 'Байршлын эрх татгалзсан байна.';
+          _isLocationServiceEnabled = false;
+          notifyListeners();
+          return;
+        }
       }
-      
-      if (permission == LocationPermission.denied) {
-        _errorMessage = 'Байршлын зөвшөөрөл олгоогүй. Тохиргооноос зөвшөөрнө үү.';
-        notifyListeners();
-        return;
-      }
-      
+
       if (permission == LocationPermission.deniedForever) {
-        _errorMessage = 'Байршлын зөвшөөрөл бүрэн хориглогдсон. Тохиргооноос дахин идэвхжүүлнэ үү.';
+        _errorMessage = 'Байршлын эрх татгалзсан байна. Тохиргоонд оруулж эрх олгоно уу.';
+        _isLocationServiceEnabled = false;
         notifyListeners();
-        // Try to open app settings
-        await Geolocator.openAppSettings();
         return;
       }
 
       _isTracking = true;
-      notifyListeners();
-      
-      // Try to get current position first with better accuracy
+      _isLocationServiceEnabled = true;
+      _useIpOnlyMode = false;
+
+      // Эхний байршлыг авах
       try {
-        Position currentPos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.best,
-          timeLimit: const Duration(seconds: 15),
-          forceAndroidLocationManager: false,
-        ).timeout(
-          const Duration(seconds: 20),
+        Position position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 10),
         );
         
-        if (currentPos.latitude != 0.0 && currentPos.longitude != 0.0) {
-          _currentLocation = LatLng(currentPos.latitude, currentPos.longitude);
-          if (_shouldAddToHistory(_currentLocation!)) {
-            _locationHistory.add(_currentLocation!);
-          }
-          _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
-          await _saveLocations();
-          _errorMessage = null;
-          notifyListeners();
-        } else {
-          throw Exception('Invalid GPS coordinates');
+        _currentLocation = LatLng(position.latitude, position.longitude);
+        if (_shouldAddToHistory(_currentLocation!)) {
+          _locationHistory.add(_currentLocation!);
         }
+        _lastLocationUpdateTime = DateTime.now();
+        await _saveLocations();
+        print('✅ GPS байршил тодорхойллоо: ${position.latitude}, ${position.longitude}');
+        _errorMessage = null;
+        notifyListeners();
       } catch (e) {
-        print('GPS алдаа: $e');
-        // Only use fake location if we're sure GPS isn't working
-        // Try once more with lower accuracy
-        try {
-          Position currentPos = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.medium,
-            timeLimit: const Duration(seconds: 10),
-          ).timeout(
-            const Duration(seconds: 15),
-          );
+        print('⚠️ Эхний GPS байршил авах алдаа: $e');
+        // Алдаа гарвал stream-ээр авах гэж оролдох
+      }
+
+      // Байршлын өөрчлөлтийг stream-ээр сонсох
+      _positionSub?.cancel();
+      _positionSub = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10, // 10 метрээс их хөдөлсөн тохиолдолд шинэчлэх
+        ),
+      ).listen(
+        (Position position) {
+          final newLocation = LatLng(position.latitude, position.longitude);
           
-          if (currentPos.latitude != 0.0 && currentPos.longitude != 0.0) {
-            _currentLocation = LatLng(currentPos.latitude, currentPos.longitude);
+          // Зөвхөн байршил мэдэгдэхүйц өөрчлөгдсөн тохиолдолд шинэчлэх
+          if (_currentLocation == null || 
+              Geolocator.distanceBetween(
+                _currentLocation!.latitude,
+                _currentLocation!.longitude,
+                newLocation.latitude,
+                newLocation.longitude,
+              ) > _minDistanceToSave) {
+            _currentLocation = newLocation;
             if (_shouldAddToHistory(_currentLocation!)) {
               _locationHistory.add(_currentLocation!);
             }
-            _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
-            await _saveLocations();
-            _errorMessage = null;
+            _lastLocationUpdateTime = DateTime.now();
+            _saveLocations().catchError((e) {
+              print('⚠️ Байршлыг хадгалах алдаа: $e');
+            });
+            print('✅ GPS байршил шинэчлэгдлээ: ${position.latitude}, ${position.longitude}');
             notifyListeners();
-          } else {
-            throw Exception('Invalid GPS coordinates');
           }
-        } catch (e2) {
-          print('GPS хоёр дахь оролдлого бас алдаатай: $e2');
-          
-          // Try to get last known position (works offline)
-          try {
-            Position? lastKnownPos = await Geolocator.getLastKnownPosition();
-            if (lastKnownPos != null && lastKnownPos.latitude != 0.0 && lastKnownPos.longitude != 0.0) {
-              _currentLocation = LatLng(lastKnownPos.latitude, lastKnownPos.longitude);
-              if (_shouldAddToHistory(_currentLocation!)) {
-                _locationHistory.add(_currentLocation!);
-              }
-              _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
-              await _saveLocations();
-              _errorMessage = null; // Сүүлийн мэдэгдэх байршил ашиглаж байгаа үед алдаа харуулахгүй
-              notifyListeners();
-              print('Сүүлийн мэдэгдэх байршил ашиглалаа: ${lastKnownPos.latitude}, ${lastKnownPos.longitude}');
-            } else {
-              throw Exception('Last known position not available');
-            }
-          } catch (e3) {
-            print('Сүүлийн мэдэгдэх байршил байхгүй: $e3');
-            
-            // Try to use saved location from SharedPreferences
-            if (_currentLocation != null) {
-              _errorMessage = null; // Хадгалагдсан байршил ашиглаж байгаа үед алдаа харуулахгүй
-              notifyListeners();
-              print('Хадгалагдсан байршил ашиглалаа: ${_currentLocation!.latitude}, ${_currentLocation!.longitude}');
-            } else {
-              _errorMessage = 'GPS оффлайн байна. Түр зуурын байршил ашиглаж байна.';
-              useFakeLocation();
-            }
-          }
-        }
-      }
-      
-      // Start position stream with better settings
-      LocationSettings settings = const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5, // Жижиг зайгаар шинэчлэх (илүү нарийвчлалтай)
-        timeLimit: Duration(seconds: 15),
-      );
-
-      await _positionSub?.cancel();
-      _positionSub = Geolocator.getPositionStream(locationSettings: settings)
-        .listen(
-          (Position pos) {
-            if (pos.latitude != 0.0 && pos.longitude != 0.0) {
-              final newLocation = LatLng(pos.latitude, pos.longitude);
-              
-              _currentLocation = newLocation;
-              
-              // 20 метрийн хүрээ доторх хөдөлгөөнийг хадгалахгүй
-              if (_shouldAddToHistory(_currentLocation!)) {
-                _locationHistory.add(_currentLocation!);
-              }
-              
-              _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
-              _errorMessage = null; // Clear error when we get location
-              _saveLocations();
-              notifyListeners();
-            }
-          },
-          onError: (error) {
-            print('GPS stream алдаа: $error');
-            _errorMessage = 'Байршил авах алдаа: ${error.toString()}';
-            notifyListeners();
-          },
-          cancelOnError: false, // Continue listening even on error
-        );
-      
-      // Start timer to save location every 1 minute (ensure data persistence)
-      _locationUpdateTimer?.cancel();
-      _locationUpdateTimer = Timer.periodic(
-        const Duration(minutes: 1),
-        (Timer timer) async {
-          if (_isTracking && _currentLocation != null) {
-            try {
-              // Хэрэв байршил байгаа бол хадгалах
-              await _saveLocations();
-              print('GPS байршил 1 минут тутамд хадгалагдлаа');
-            } catch (e) {
-              print('Timer байршил хадгалах алдаа: $e');
-            }
-          } else if (!_isTracking) {
-            timer.cancel();
-          }
+        },
+        onError: (error) {
+          print('❌ GPS stream алдаа: $error');
+          _errorMessage = 'GPS байршил авах алдаа: ${error.toString()}';
+          notifyListeners();
         },
       );
     } catch (e) {
-      print('Start tracking алдаа: $e');
-      _errorMessage = 'Байршил хянах эхлүүлэх алдаа: ${e.toString()}';
+      print('❌ GPS горим алдаа: $e');
+      _errorMessage = 'GPS горимд алдаа гарлаа: $e';
+      _isTracking = false;
+      _isLocationServiceEnabled = false;
       notifyListeners();
     }
   }
 
+  Future<void> startTracking() async {
+    // GPS ашиглан байршлыг тодорхойлох
+    await _startGpsTracking();
+  }
+
   void stopTracking() {
-    // IP горим унтраах
-    if (_useIpOnlyMode) {
-      _locationUpdateTimer?.cancel();
-      _useIpOnlyMode = false;
-    }
+    // GPS tracking унтраах
     _isTracking = false;
     _positionSub?.cancel();
     _positionSub = null;
     _locationUpdateTimer?.cancel();
     _locationUpdateTimer = null;
+    _useIpOnlyMode = false;
     notifyListeners();
   }
 
@@ -659,72 +540,159 @@ class LocationProvider extends ChangeNotifier {
     }
   }
 
-  /// IP хаягаар байршлыг тодорхойлох
+  /// IP хаягаар байршлыг тодорхойлох (Google Maps My Location зарчмыг ашиглаж сайжруулсан)
   Future<LatLng?> _getLocationFromIp(String ipAddress) async {
     try {
-      // IP geolocation API endpoint-үүд
+      // IP geolocation API endpoint-үүд (илүү нарийвчлалтай API-ууд эхэнд)
+      // Олон API-уудыг туршиж, хамгийн нарийвчлалтай байршлыг авах
       final endpoints = [
-        'https://ipapi.co/$ipAddress/json/',
-        'https://ipinfo.io/$ipAddress/json',
-        'http://ip-api.com/json/$ipAddress',
+        {
+          'url': 'https://ipapi.co/$ipAddress/json/',
+          'type': 'ipapi',
+          'priority': 1, // Хамгийн өндөр түвшин
+        },
+        {
+          'url': 'https://ip-api.com/json/$ipAddress',
+          'type': 'ipapi_com',
+          'priority': 2,
+        },
+        {
+          'url': 'https://ipinfo.io/$ipAddress/json',
+          'type': 'ipinfo',
+          'priority': 3,
+        },
+        {
+          'url': 'https://ipgeolocation.io/ipgeo/api?ip=$ipAddress',
+          'type': 'ipgeolocation',
+          'priority': 4,
+        },
       ];
+      
+      // Priority дарааллаар эрэмбэлэх
+      endpoints.sort((a, b) => (a['priority'] as int).compareTo(b['priority'] as int));
+      
+      LatLng? bestLocation;
+      double? bestAccuracy;
       
       for (var endpoint in endpoints) {
         try {
           final response = await http.get(
-            Uri.parse(endpoint),
-          ).timeout(const Duration(seconds: 5));
+            Uri.parse(endpoint['url'] as String),
+            headers: {
+              'Accept': 'application/json',
+              'User-Agent': 'Mozilla/5.0',
+            },
+          ).timeout(const Duration(seconds: 8));
           
           if (response.statusCode == 200) {
             final json = jsonDecode(response.body);
+            LatLng? location;
+            double? accuracy;
             
-            // ipapi.co формат
-            if (json['latitude'] != null && json['longitude'] != null) {
-              final lat = json['latitude'] is double 
-                  ? json['latitude'] 
-                  : double.tryParse(json['latitude'].toString());
-              final lng = json['longitude'] is double 
-                  ? json['longitude'] 
-                  : double.tryParse(json['longitude'].toString());
-              
-              if (lat != null && lng != null) {
-                print('✅ IP хаягаар байршил олдлоо: $lat, $lng');
-                return LatLng(lat, lng);
-              }
-            }
+            final type = endpoint['type'] as String;
             
-            // ipinfo.io формат (loc field: "lat,lng")
-            if (json['loc'] != null) {
-              final loc = json['loc'].toString().split(',');
-              if (loc.length == 2) {
-                final lat = double.tryParse(loc[0].trim());
-                final lng = double.tryParse(loc[1].trim());
+            // ipapi.co формат (хамгийн нарийвчлалтай)
+            if (type == 'ipapi') {
+              if (json['latitude'] != null && json['longitude'] != null) {
+                final lat = json['latitude'] is double 
+                    ? json['latitude'] 
+                    : double.tryParse(json['latitude'].toString());
+                final lng = json['longitude'] is double 
+                    ? json['longitude'] 
+                    : double.tryParse(json['longitude'].toString());
+                
                 if (lat != null && lng != null) {
-                  print('✅ IP хаягаар байршил олдлоо (ipinfo.io): $lat, $lng');
-                  return LatLng(lat, lng);
+                  location = LatLng(lat, lng);
+                  // Accuracy мэдээлэл байвал ашиглах
+                  if (json['accuracy'] != null) {
+                    accuracy = json['accuracy'] is double 
+                        ? json['accuracy'] 
+                        : double.tryParse(json['accuracy'].toString());
+                  }
+                  print('✅ IP хаягаар байршил олдлоо (ipapi.co): $lat, $lng');
                 }
               }
             }
             
             // ip-api.com формат
-            if (json['lat'] != null && json['lon'] != null) {
-              final lat = json['lat'] is double 
-                  ? json['lat'] 
-                  : double.tryParse(json['lat'].toString());
-              final lng = json['lon'] is double 
-                  ? json['lon'] 
-                  : double.tryParse(json['lon'].toString());
+            else if (type == 'ipapi_com') {
+              if (json['lat'] != null && json['lon'] != null) {
+                final lat = json['lat'] is double 
+                    ? json['lat'] 
+                    : double.tryParse(json['lat'].toString());
+                final lng = json['lon'] is double 
+                    ? json['lon'] 
+                    : double.tryParse(json['lon'].toString());
+                
+                if (lat != null && lng != null) {
+                  location = LatLng(lat, lng);
+                  print('✅ IP хаягаар байршил олдлоо (ip-api.com): $lat, $lng');
+                }
+              }
+            }
+            
+            // ipinfo.io формат (loc field: "lat,lng")
+            else if (type == 'ipinfo') {
+              if (json['loc'] != null) {
+                final loc = json['loc'].toString().split(',');
+                if (loc.length == 2) {
+                  final lat = double.tryParse(loc[0].trim());
+                  final lng = double.tryParse(loc[1].trim());
+                  if (lat != null && lng != null) {
+                    location = LatLng(lat, lng);
+                    print('✅ IP хаягаар байршил олдлоо (ipinfo.io): $lat, $lng');
+                  }
+                }
+              }
+            }
+            
+            // ipgeolocation.io формат
+            else if (type == 'ipgeolocation') {
+              if (json['latitude'] != null && json['longitude'] != null) {
+                final lat = json['latitude'] is double 
+                    ? json['latitude'] 
+                    : double.tryParse(json['latitude'].toString());
+                final lng = json['longitude'] is double 
+                    ? json['longitude'] 
+                    : double.tryParse(json['longitude'].toString());
+                
+                if (lat != null && lng != null) {
+                  location = LatLng(lat, lng);
+                  print('✅ IP хаягаар байршил олдлоо (ipgeolocation.io): $lat, $lng');
+                }
+              }
+            }
+            
+            // Хамгийн нарийвчлалтай байршлыг сонгох
+            if (location != null) {
+              bool shouldUpdate = false;
+              if (bestLocation == null) {
+                shouldUpdate = true;
+              } else if (accuracy != null) {
+                if (bestAccuracy == null || accuracy < bestAccuracy) {
+                  shouldUpdate = true;
+                }
+              }
               
-              if (lat != null && lng != null) {
-                print('✅ IP хаягаар байршил олдлоо (ip-api.com): $lat, $lng');
-                return LatLng(lat, lng);
+              if (shouldUpdate) {
+                bestLocation = location;
+                bestAccuracy = accuracy;
+                // Хамгийн нарийвчлалтай байршил олдвол зогсох
+                if (accuracy != null && accuracy < 1000) { // 1км-ээс бага алдаатай бол зогсох
+                  break;
+                }
               }
             }
           }
         } catch (e) {
-          print('⚠️ IP geolocation алдаа ($endpoint): $e');
+          print('⚠️ IP geolocation алдаа (${endpoint['url']}): $e');
           continue;
         }
+      }
+      
+      if (bestLocation != null) {
+        print('✅ IP хаягаар эцсийн байршил: ${bestLocation.latitude}, ${bestLocation.longitude}');
+        return bestLocation;
       }
       
       print('❌ IP хаягаар байршил олдсонгүй');
@@ -735,170 +703,58 @@ class LocationProvider extends ChangeNotifier {
     }
   }
 
-  /// Try to get location with better error handling and timeout
+  /// GPS ашиглан байршлыг шинэчлэх
   Future<void> updateCurrentLocation() async {
     try {
-      // IP хаяг авах болон IP-аар байршлыг тодорхойлох
-      _getIpAddress().then((ip) async {
-        if (ip != null) {
-          _currentIpAddress = ip;
-          
-          // IP хаягаар байршлыг тодорхойлох
-          final ipLocation = await _getLocationFromIp(ip);
-          if (ipLocation != null && _currentLocation == null) {
-            // GPS байршил байхгүй бол IP-аар олсон байршлыг ашиглах
-            _currentLocation = ipLocation;
-            if (_shouldAddToHistory(_currentLocation!)) {
-              _locationHistory.add(_currentLocation!);
-            }
-            _lastLocationUpdateTime = DateTime.now();
-            await _saveLocations();
-            print('✅ IP хаягаар байршил тодорхойллоо: ${ipLocation.latitude}, ${ipLocation.longitude}');
-            notifyListeners();
-          }
-          
-          notifyListeners();
-        }
-      });
+      _errorMessage = null;
       
-      // Check if location service is enabled
+      // Байршлын эрхийг шалгах
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        // GPS байхгүй бол IP-аар олсон байршлыг ашиглах
-        if (_currentLocation == null) {
-          // IP хаяг авах хүлээх
-          await Future.delayed(const Duration(seconds: 2));
-        }
-        
-        if (_currentLocation == null) {
-          _errorMessage = 'Байршлын үйлчилгээ идэвхгүй байна.';
-          notifyListeners();
-          return;
-        }
-      }
-      
-      // Try with best accuracy first
-      try {
-        Position pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.best,
-          timeLimit: const Duration(seconds: 15),
-          forceAndroidLocationManager: false,
-        ).timeout(
-          const Duration(seconds: 20),
-        );
-        
-        if (pos.latitude != 0.0 && pos.longitude != 0.0) {
-          _currentLocation = LatLng(pos.latitude, pos.longitude);
-          if (_shouldAddToHistory(_currentLocation!)) {
-            _locationHistory.add(_currentLocation!);
-          }
-          _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
-          _errorMessage = null;
-          await _saveLocations();
-          notifyListeners();
-          return;
-        }
-      } catch (e) {
-        print('Best accuracy GPS алдаа: $e');
-      }
-      
-      // Try with medium accuracy as fallback
-      try {
-        Position pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.medium,
-          timeLimit: const Duration(seconds: 10),
-        ).timeout(
-          const Duration(seconds: 15),
-        );
-        
-        if (pos.latitude != 0.0 && pos.longitude != 0.0) {
-          _currentLocation = LatLng(pos.latitude, pos.longitude);
-          if (_shouldAddToHistory(_currentLocation!)) {
-            _locationHistory.add(_currentLocation!);
-          }
-          _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
-          _errorMessage = null;
-          await _saveLocations();
-          notifyListeners();
-          return;
-        }
-      } catch (e) {
-        print('Medium accuracy GPS алдаа: $e');
-      }
-      
-      // Try with low accuracy as last resort
-      try {
-        Position pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.low,
-          timeLimit: const Duration(seconds: 8),
-        ).timeout(
-          const Duration(seconds: 10),
-        );
-        
-        if (pos.latitude != 0.0 && pos.longitude != 0.0) {
-          _currentLocation = LatLng(pos.latitude, pos.longitude);
-          if (_shouldAddToHistory(_currentLocation!)) {
-            _locationHistory.add(_currentLocation!);
-          }
-          _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
-          _errorMessage = null;
-          await _saveLocations();
-          notifyListeners();
-          return;
-        }
-      } catch (e) {
-        print('Low accuracy GPS алдаа: $e');
-      }
-      
-      // If all attempts fail, try last known position (works offline)
-      try {
-        Position? lastKnownPos = await Geolocator.getLastKnownPosition();
-        if (lastKnownPos != null && lastKnownPos.latitude != 0.0 && lastKnownPos.longitude != 0.0) {
-          _currentLocation = LatLng(lastKnownPos.latitude, lastKnownPos.longitude);
-          if (_shouldAddToHistory(_currentLocation!)) {
-            _locationHistory.add(_currentLocation!);
-          }
-          _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
-          await _saveLocations();
-          _errorMessage = null; // Сүүлийн мэдэгдэх байршил ашиглаж байгаа үед алдаа харуулахгүй
-          notifyListeners();
-          print('Сүүлийн мэдэгдэх байршил ашиглалаа: ${lastKnownPos.latitude}, ${lastKnownPos.longitude}');
-          return;
-        }
-      } catch (e3) {
-        print('Сүүлийн мэдэгдэх байршил байхгүй: $e3');
-      }
-      
-      // Try to use saved location from SharedPreferences
-      if (_currentLocation != null) {
-        _errorMessage = null; // Хадгалагдсан байршил ашиглаж байгаа үед алдаа харуулахгүй
+        _errorMessage = 'Байршлын үйлчилгээ идэвхгүй байна.';
+        _isLocationServiceEnabled = false;
         notifyListeners();
-        print('Хадгалагдсан байршил ашиглалаа: ${_currentLocation!.latitude}, ${_currentLocation!.longitude}');
-      } else {
-        _errorMessage = 'GPS ажиллахгүй байна. Байршлын үйлчилгээг шалгана уу.';
-        notifyListeners();
+        return;
       }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          _errorMessage = 'Байршлын эрх татгалзсан байна.';
+          _isLocationServiceEnabled = false;
+          notifyListeners();
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        _errorMessage = 'Байршлын эрх татгалзсан байна. Тохиргоонд оруулж эрх олгоно уу.';
+        _isLocationServiceEnabled = false;
+        notifyListeners();
+        return;
+      }
+
+      _isLocationServiceEnabled = true;
+
+      // GPS байршлыг авах
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+      
+      final newLocation = LatLng(position.latitude, position.longitude);
+      _currentLocation = newLocation;
+      if (_shouldAddToHistory(_currentLocation!)) {
+        _locationHistory.add(_currentLocation!);
+      }
+      _lastLocationUpdateTime = DateTime.now();
+      await _saveLocations();
+      print('✅ GPS байршил шинэчлэгдлээ: ${position.latitude}, ${position.longitude}');
+      _errorMessage = null;
+      notifyListeners();
     } catch (e) {
       print('Update location алдаа: $e');
-      
-      // Try last known position as fallback
-      try {
-        Position? lastKnownPos = await Geolocator.getLastKnownPosition();
-        if (lastKnownPos != null && lastKnownPos.latitude != 0.0 && lastKnownPos.longitude != 0.0) {
-          _currentLocation = LatLng(lastKnownPos.latitude, lastKnownPos.longitude);
-          if (_shouldAddToHistory(_currentLocation!)) {
-            _locationHistory.add(_currentLocation!);
-          }
-          _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
-          await _saveLocations();
-          _errorMessage = null; // Сүүлийн мэдэгдэх байршил ашиглаж байгаа үед алдаа харуулахгүй
-          notifyListeners();
-          return;
-        }
-      } catch (e2) {
-        print('Сүүлийн мэдэгдэх байршил авах алдаа: $e2');
-      }
-      
       _errorMessage = 'Байршил шинэчлэх алдаа: ${e.toString()}';
       notifyListeners();
     }

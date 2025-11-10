@@ -34,14 +34,6 @@ class BottomNavigationWidget extends StatelessWidget {
             children: [
               _buildBottomNavItem(
                 context,
-                'Dashboard',
-                Icons.dashboard_rounded,
-                const Color(0xFF6366F1),
-                '/sales-dashboard',
-                currentRoute == '/sales-dashboard',
-              ),
-              _buildBottomNavItem(
-                context,
                 'Sales',
                 Icons.sell_rounded,
                 const Color(0xFF10B981),

@@ -21,11 +21,6 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _notificationsEnabled = true;
   bool _darkModeEnabled = false;
-  bool _locationTrackingEnabled = false;
-  bool _newSettingEnabled = false; // New boolean for the additional setting
-  String _selectedLanguage = 'English';
-  String _selectedCurrency = 'USD';
-  String _selectedOption = 'Option 1'; // New String for the dropdown
 
   @override
   Widget build(BuildContext context) {
@@ -200,61 +195,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _darkModeEnabled,
                   (value) => setState(() => _darkModeEnabled = value),
                 ),
-                // Location Tracking Tile
-                ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                  leading: Icon(Icons.location_on_rounded, color: Colors.grey[600]),
-                  title: const Text(
-                    'Байршил хянах',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w500,
-                      fontSize: 16,
-                    ),
-                  ),
-                  subtitle: const Text(
-                    'Машины хөдөлгөөнийг хянахыг зөвшөөрөх',
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontSize: 14,
-                    ),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.map_rounded),
-                        onPressed: _showLocationHistoryMap,
-                        color: const Color(0xFF6366F1),
-                        tooltip: 'Map харах',
-                      ),
-                      Switch(
-                        value: _locationTrackingEnabled,
-                        onChanged: (value) async {
-                          final provider = Provider.of<LocationProvider>(
-                            context, 
-                            listen: false
-                          );
-                          if (value) {
-                            await provider.startTracking();
-                          } else {
-                            provider.stopTracking();
-                          }
-                          setState(() => _locationTrackingEnabled = value);
-                        },
-                        activeColor: const Color(0xFF10B981),
-                      ),
-                    ],
-                  ),
-                  onTap: _showLocationHistoryMap, // Tap to open map directly
-                ),
-                // IP Only Mode Tile
+                // Location Tracking Tile (Combined - IP Only Mode)
                 Consumer<LocationProvider>(
                   builder: (context, locationProvider, child) {
+                    // Combined state - IP-only tracking
+                    final isEnabled = locationProvider.isTracking && locationProvider.useIpOnlyMode;
+                    
                     return ListTile(
                       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                      leading: Icon(Icons.wifi_rounded, color: Colors.grey[600]),
+                      leading: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.location_on_rounded, color: Colors.grey[600]),
+                          const SizedBox(width: 8),
+                          Icon(Icons.wifi_rounded, color: Colors.grey[600], size: 20),
+                        ],
+                      ),
                       title: const Text(
-                        'Зөвхөн IP хаягаар байршил тодорхойлох',
+                        'Байршил хянах (IP хаягаар)',
                         style: TextStyle(
                           fontWeight: FontWeight.w500,
                           fontSize: 16,
@@ -267,61 +225,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           fontSize: 14,
                         ),
                       ),
-                      trailing: Switch(
-                        value: locationProvider.useIpOnlyMode,
-                        onChanged: (value) {
-                          locationProvider.setIpOnlyMode(value);
-                          if (value) {
-                            setState(() => _locationTrackingEnabled = true);
-                          }
-                        },
-                        activeColor: const Color(0xFF3B82F6),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.map_rounded),
+                            onPressed: _showLocationHistoryMap,
+                            color: const Color(0xFF6366F1),
+                            tooltip: 'Map харах',
+                          ),
+                          Switch(
+                            value: isEnabled,
+                            onChanged: (value) async {
+                              if (value) {
+                                // Enable IP-only mode and start tracking
+                                locationProvider.setIpOnlyMode(true);
+                                await locationProvider.startTracking();
+                              } else {
+                                // Disable both
+                                locationProvider.stopTracking();
+                                locationProvider.setIpOnlyMode(false);
+                              }
+                              setState(() {});
+                            },
+                            activeColor: const Color(0xFF10B981),
+                          ),
+                        ],
                       ),
+                      onTap: _showLocationHistoryMap, // Tap to open map directly
                     );
                   },
-                ),
-                // New Setting Tile
-                _buildSwitchTile(
-                  'New Setting',
-                  'Description of the new setting',
-                  Icons.new_releases_rounded,
-                  _newSettingEnabled,
-                  (value) => setState(() => _newSettingEnabled = value),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            // Language & Region Section
-            _buildSectionCard(
-              'Language & Region',
-              Icons.language_rounded,
-              const Color(0xFF8B5CF6),
-              [
-                _buildDropdownTile(
-                  'Language',
-                  'Select your preferred language',
-                  Icons.translate_rounded,
-                  _selectedLanguage,
-                  ['English', 'Spanish', 'French', 'German', 'Chinese'],
-                  (value) => setState(() => _selectedLanguage = value!),
-                ),
-                _buildDropdownTile(
-                  'Currency',
-                  'Select your preferred currency',
-                  Icons.attach_money_rounded,
-                  _selectedCurrency,
-                  ['USD', 'EUR', 'GBP', 'JPY', 'CAD'],
-                  (value) => setState(() => _selectedCurrency = value!),
-                ),
-                // New Dropdown Tile
-                _buildDropdownTile(
-                  'New Dropdown',
-                  'Select an option',
-                  Icons.list_rounded,
-                  _selectedOption,
-                  ['Option 1', 'Option 2', 'Option 3'],
-                  (value) => setState(() => _selectedOption = value!),
                 ),
               ],
             ),
@@ -510,38 +443,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         value: value,
         onChanged: onChanged,
         activeColor: const Color(0xFF10B981),
-      ),
-    );
-  }
-
-  Widget _buildDropdownTile(String title, String subtitle, IconData icon, String value, List<String> options, Function(String?) onChanged) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      leading: Icon(icon, color: Colors.grey[600]),
-      title: Text(
-        title,
-        style: const TextStyle(
-          fontWeight: FontWeight.w500,
-          fontSize: 16,
-        ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: TextStyle(
-          color: Colors.grey[600],
-          fontSize: 14,
-        ),
-      ),
-      trailing: DropdownButton<String>(
-        value: value,
-        onChanged: onChanged,
-        underline: const SizedBox(),
-        items: options.map((String option) {
-          return DropdownMenuItem<String>(
-            value: option,
-            child: Text(option),
-          );
-        }).toList(),
       ),
     );
   }

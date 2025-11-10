@@ -183,7 +183,7 @@ class _OrderScreenState extends State<OrderScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Take Order'),
+        title: const Text('Захиалга авах'),
         backgroundColor: const Color(0xFF3B82F6),
         foregroundColor: Colors.white,
         elevation: 0,
@@ -193,12 +193,6 @@ class _OrderScreenState extends State<OrderScreen> {
             onPressed: () => Scaffold.of(context).openDrawer(),
           ),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => context.go('/sales-dashboard'),
-          ),
-        ],
       ),
       drawer: const HamburgerMenu(),
       bottomNavigationBar: const BottomNavigationWidget(currentRoute: '/order-screen'),
@@ -248,7 +242,7 @@ class _OrderScreenState extends State<OrderScreen> {
                         ),
                         const SizedBox(height: 16),
                         const Text(
-                          'Take New Order',
+                          'Шинэ захиалга',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 24,
@@ -257,7 +251,7 @@ class _OrderScreenState extends State<OrderScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Enter customer and order details',
+                          'Харилцагч болон захиалгын мэдээлэл оруулах',
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.9),
                             fontSize: 16,
@@ -287,7 +281,7 @@ class _OrderScreenState extends State<OrderScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Customer Information',
+                          'Харилцагчийн мэдээлэл',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -299,13 +293,13 @@ class _OrderScreenState extends State<OrderScreen> {
                         TextFormField(
                           controller: _customerNameController,
                           decoration: const InputDecoration(
-                            labelText: 'Customer Name *',
+                            labelText: 'Нэр *',
                             prefixIcon: Icon(Icons.person),
                             border: OutlineInputBorder(),
                           ),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
-                              return 'Please enter customer name';
+                              return 'Нэр оруулна уу';
                             }
                             return null;
                           },
@@ -316,13 +310,13 @@ class _OrderScreenState extends State<OrderScreen> {
                           controller: _customerPhoneController,
                           keyboardType: TextInputType.phone,
                           decoration: const InputDecoration(
-                            labelText: 'Phone Number *',
+                            labelText: 'Утас *',
                             prefixIcon: Icon(Icons.phone),
                             border: OutlineInputBorder(),
                           ),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
-                              return 'Please enter phone number';
+                              return 'Утасны дугаар оруулна уу';
                             }
                             return null;
                           },
@@ -333,13 +327,13 @@ class _OrderScreenState extends State<OrderScreen> {
                           controller: _customerAddressController,
                           maxLines: 2,
                           decoration: const InputDecoration(
-                            labelText: 'Address *',
+                            labelText: 'Хаяг *',
                             prefixIcon: Icon(Icons.location_on),
                             border: OutlineInputBorder(),
                           ),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
-                              return 'Please enter address';
+                              return 'Хаяг оруулна уу';
                             }
                             return null;
                           },
@@ -370,7 +364,7 @@ class _OrderScreenState extends State<OrderScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text(
-                              'Order Items',
+                              'Захиалгын бараа',
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -380,7 +374,7 @@ class _OrderScreenState extends State<OrderScreen> {
                             ElevatedButton.icon(
                               onPressed: _addOrderItem,
                               icon: const Icon(Icons.add),
-                              label: const Text('Add Item'),
+                              label: const Text('Нэмэх'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF3B82F6),
                                 foregroundColor: Colors.white,
@@ -406,7 +400,7 @@ class _OrderScreenState extends State<OrderScreen> {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  'No items added yet',
+                                  'Бараа нэмэгдээгүй байна',
                                   style: TextStyle(
                                     color: Colors.grey[600],
                                     fontSize: 16,
@@ -414,7 +408,7 @@ class _OrderScreenState extends State<OrderScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Tap "Add Item" to add products',
+                                  '"Нэмэх" товч дараад бараа нэмнэ үү',
                                   style: TextStyle(
                                     color: Colors.grey[500],
                                   ),
@@ -429,12 +423,12 @@ class _OrderScreenState extends State<OrderScreen> {
                               margin: const EdgeInsets.only(bottom: 8),
                               child: ListTile(
                                 title: Text(item.productName),
-                                subtitle: Text('Qty: ${item.quantity} × \$${item.unitPrice}'),
+                                subtitle: Text('Тоо: ${item.quantity} × ${item.unitPrice.toStringAsFixed(0)}₮'),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      '\$${item.totalPrice.toStringAsFixed(2)}',
+                                      '${item.totalPrice.toStringAsFixed(0)}₮',
                                       style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 16,
@@ -465,14 +459,14 @@ class _OrderScreenState extends State<OrderScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 const Text(
-                                  'Total Amount:',
+                                  'Нийт дүн:',
                                   style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
                                 Text(
-                                  '\$${_totalAmount.toStringAsFixed(2)}',
+                                  '${_totalAmount.toStringAsFixed(0)}₮',
                                   style: const TextStyle(
                                     fontSize: 20,
                                     fontWeight: FontWeight.bold,
@@ -505,7 +499,7 @@ class _OrderScreenState extends State<OrderScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Order Notes (Optional)',
+                          'Тэмдэглэл (Сонголттой)',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -517,7 +511,7 @@ class _OrderScreenState extends State<OrderScreen> {
                           controller: _notesController,
                           maxLines: 3,
                           decoration: const InputDecoration(
-                            hintText: 'Special instructions or notes',
+                            hintText: 'Тусгай зааварчилгаа эсвэл тэмдэглэл',
                             border: OutlineInputBorder(),
                             prefixIcon: Icon(Icons.note_outlined),
                           ),
@@ -752,10 +746,10 @@ class _AddOrderItemDialogState extends State<_AddOrderItemDialog> {
                           ),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
-                              return 'Шаардлагатай';
+                              return 'Тоо оруулна уу';
                             }
                             if (int.tryParse(value.trim()) == null || int.parse(value.trim()) <= 0) {
-                              return 'Буруу';
+                              return 'Зөв тоо оруулна уу';
                             }
                             return null;
                           },

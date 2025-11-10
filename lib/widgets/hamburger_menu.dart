@@ -123,14 +123,6 @@ class HamburgerMenu extends StatelessWidget {
                     const Divider(height: 40),
                     _buildMenuItem(
                       context,
-                      'Login',
-                      Icons.login_rounded,
-                      const Color(0xFF6366F1),
-                      () => context.go('/login'),
-                    ),
-                    const Divider(height: 40),
-                    _buildMenuItem(
-                      context,
                       'Logout',
                       Icons.logout_rounded,
                       const Color(0xFFEF4444),

@@ -13,6 +13,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/product_provider.dart';
 import '../../providers/shop_provider.dart';
 import '../../providers/location_provider.dart';
+import '../../providers/order_provider.dart';
 import '../../models/sales_model.dart';
 import '../../models/sales_item_model.dart';
 import '../../models/product_model.dart';
@@ -30,6 +31,12 @@ class SalesEntryScreen extends StatefulWidget {
 class _SalesEntryScreenState extends State<SalesEntryScreen> {
   final _formKey = GlobalKey<FormState>();
   final _notesController = TextEditingController();
+  final _formSectionKey = GlobalKey();
+  
+  // Захиалгын мэдээлэл
+  final _customerNameController = TextEditingController();
+  final _customerPhoneController = TextEditingController();
+  final _customerAddressController = TextEditingController();
   
   String? _selectedShopName;
   
@@ -45,6 +52,9 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   void dispose() {
     _currentQuantityController.dispose();
     _notesController.dispose();
+    _customerNameController.dispose();
+    _customerPhoneController.dispose();
+    _customerAddressController.dispose();
     super.dispose();
   }
   
@@ -172,6 +182,135 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
             _selectedShopName = shopName;
           });
         },
+      ),
+    );
+  }
+
+  void _showAddProductDialog() {
+    final _productNameController = TextEditingController();
+    final _productPriceController = TextEditingController();
+    final _productDescriptionController = TextEditingController();
+    final _productCategoryController = TextEditingController();
+    final _formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Бараа нэмэх'),
+        content: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextFormField(
+                  controller: _productNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Барааны нэр *',
+                    prefixIcon: Icon(Icons.inventory_2),
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Барааны нэр оруулна уу';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _productPriceController,
+                  decoration: const InputDecoration(
+                    labelText: 'Үнэ *',
+                    prefixIcon: Icon(Icons.attach_money),
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Үнэ оруулна уу';
+                    }
+                    if (double.tryParse(value) == null || double.parse(value) <= 0) {
+                      return 'Зөв үнэ оруулна уу';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _productDescriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Тайлбар',
+                    prefixIcon: Icon(Icons.description),
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _productCategoryController,
+                  decoration: const InputDecoration(
+                    labelText: 'Ангилал',
+                    prefixIcon: Icon(Icons.category),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              _productNameController.dispose();
+              _productPriceController.dispose();
+              _productDescriptionController.dispose();
+              _productCategoryController.dispose();
+              Navigator.pop(context);
+            },
+            child: const Text('Цуцлах'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (_formKey.currentState!.validate()) {
+                final productProvider = Provider.of<ProductProvider>(context, listen: false);
+                final newProduct = Product(
+                  id: DateTime.now().millisecondsSinceEpoch.toString(),
+                  name: _productNameController.text.trim(),
+                  price: double.parse(_productPriceController.text.trim()),
+                  description: _productDescriptionController.text.trim().isEmpty 
+                      ? null 
+                      : _productDescriptionController.text.trim(),
+                  category: _productCategoryController.text.trim().isEmpty 
+                      ? null 
+                      : _productCategoryController.text.trim(),
+                );
+                
+                productProvider.addProduct(newProduct);
+                
+                _productNameController.dispose();
+                _productPriceController.dispose();
+                _productDescriptionController.dispose();
+                _productCategoryController.dispose();
+                
+                Navigator.pop(context);
+                
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('${newProduct.name} амжилттай нэмэгдлээ'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Нэмэх'),
+          ),
+        ],
       ),
     );
   }
@@ -574,63 +713,237 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       ),
       drawer: const HamburgerMenu(),
       bottomNavigationBar: const BottomNavigationWidget(currentRoute: '/sales-entry'),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Header Section with Gradient
-            Container(
-              width: double.infinity,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF10B981),
-                    Color(0xFF059669),
-                  ],
+      body: Consumer2<SalesProvider, OrderProvider>(
+        builder: (context, salesProvider, orderProvider, child) {
+          return SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Dashboard Header Section with Gradient
+                Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFF6366F1),
+                        Color(0xFF8B5CF6),
+                      ],
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.person_rounded,
+                                color: Colors.white,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Welcome back!',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const Text(
+                                    'Sales Staff',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        Text(
+                          'Manage your sales and orders efficiently',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.9),
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Icon(
-                        Icons.sell_rounded,
-                        size: 48,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Record New Sale',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Enter the details of the product sold',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.9),
-                        fontSize: 16,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ),
 
-            // Form Section
-            Container(
+                // Stats Cards Section
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildModernStatCard(
+                          'Total Sales',
+                          '\$${salesProvider.getTotalSales().toStringAsFixed(2)}',
+                          Icons.trending_up_rounded,
+                          const Color(0xFF10B981),
+                          const Color(0xFFECFDF5),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _buildModernStatCard(
+                          'Orders',
+                          '${orderProvider.orders.length}',
+                          Icons.shopping_cart_rounded,
+                          const Color(0xFF3B82F6),
+                          const Color(0xFFEFF6FF),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Quick Actions Section
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Quick Actions',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF1E293B),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      
+                      // First row of actions
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildCircularActionButton(
+                            context,
+                            'Record Sale',
+                            Icons.add_rounded,
+                            const Color(0xFF10B981),
+                            () {
+                              // Already on sales entry screen, just scroll to form
+                              if (_formSectionKey.currentContext != null) {
+                                Scrollable.ensureVisible(
+                                  _formSectionKey.currentContext!,
+                                  duration: const Duration(milliseconds: 500),
+                                  curve: Curves.easeInOut,
+                                );
+                              }
+                            },
+                          ),
+                          _buildCircularActionButton(
+                            context,
+                            'Take Order',
+                            Icons.shopping_cart_rounded,
+                            const Color(0xFF3B82F6),
+                            () => context.go('/order-screen'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      
+                      // Second row of actions
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildCircularActionButton(
+                            context,
+                            'Add Shop',
+                            Icons.store_rounded,
+                            const Color(0xFF8B5CF6),
+                            () => _showAddShopDialog(),
+                          ),
+                          _buildCircularActionButton(
+                            context,
+                            'Add Product',
+                            Icons.inventory_2_rounded,
+                            const Color(0xFFF59E0B),
+                            () => _showAddProductDialog(),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
+
+                // Sales Entry Form Header
+                Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFF10B981),
+                        Color(0xFF059669),
+                      ],
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Icon(
+                            Icons.sell_rounded,
+                            size: 48,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Record New Sale',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Enter the details of the product sold',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.9),
+                            fontSize: 16,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Form Section
+                Container(
+                  key: _formSectionKey,
               margin: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -933,10 +1246,69 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                       controller: _notesController,
                       maxLines: 3,
                       decoration: const InputDecoration(
-                        labelText: 'Notes (Optional)',
-                        hintText: 'Additional notes about the sale',
+                        labelText: 'Тэмдэглэл (Сонголттой)',
+                        hintText: 'Нэмэлт тэмдэглэл',
                         prefixIcon: Icon(Icons.note_outlined),
                         alignLabelWithHint: true,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Захиалгын хэсэг
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Захиалгын мэдээлэл',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1E293B),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _customerNameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Харилцагчийн нэр',
+                              prefixIcon: Icon(Icons.person),
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _customerPhoneController,
+                            keyboardType: TextInputType.phone,
+                            decoration: const InputDecoration(
+                              labelText: 'Утас',
+                              prefixIcon: Icon(Icons.phone),
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _customerAddressController,
+                            maxLines: 2,
+                            decoration: const InputDecoration(
+                              labelText: 'Хаяг',
+                              prefixIcon: Icon(Icons.location_on),
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 32),
@@ -983,9 +1355,111 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                 ),
               ),
             ),
-          ],
-        ),
+              ],
+            ),
+          );
+        },
       ),
+    );
+  }
+
+  Widget _buildModernStatCard(String title, String value, IconData icon, Color color, Color backgroundColor) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 20, color: color),
+              ),
+              const Spacer(),
+              Icon(Icons.trending_up_rounded, size: 16, color: color.withOpacity(0.7)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 14,
+              color: color.withOpacity(0.8),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCircularActionButton(
+    BuildContext context,
+    String title,
+    IconData icon,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return Column(
+      children: [
+        Container(
+          width: 70,
+          height: 70,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(35),
+              onTap: onTap,
+              child: Center(
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 28,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
 }
