@@ -173,7 +173,7 @@ class SalesDashboard extends StatelessWidget {
                   ),
                 ),
 
-                // Action Buttons Section
+                // Quick Actions Section
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Column(
@@ -189,25 +189,21 @@ class SalesDashboard extends StatelessWidget {
                       const SizedBox(height: 16),
                       
                       Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          Expanded(
-                            child: _buildActionButton(
-                              context,
-                              'Take Order',
-                              Icons.shopping_cart_rounded,
-                              const Color(0xFF3B82F6),
-                              () => context.go('/order-screen'),
-                            ),
+                          _buildCircularActionButton(
+                            context,
+                            'Record Sale',
+                            Icons.add_rounded,
+                            const Color(0xFF10B981),
+                            () => context.go('/sales-entry'),
                           ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _buildActionButton(
-                              context,
-                              'Purchase',
-                              Icons.shopping_bag_rounded,
-                              const Color(0xFF10B981),
-                              () => context.go('/purchase'),
-                            ),
+                          _buildCircularActionButton(
+                            context,
+                            'Take Order',
+                            Icons.shopping_cart_rounded,
+                            const Color(0xFF3B82F6),
+                            () => context.go('/order-screen'),
                           ),
                         ],
                       ),
@@ -318,55 +314,56 @@ class SalesDashboard extends StatelessWidget {
     );
   }
 
-  Widget _buildActionButton(
+  Widget _buildCircularActionButton(
     BuildContext context,
     String title,
     IconData icon,
     Color color,
     VoidCallback onTap,
   ) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+    return Column(
+      children: [
+        Container(
+          width: 70,
+          height: 70,
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: color.withOpacity(0.2)),
-          ),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
-                textAlign: TextAlign.center,
+            color: color.withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
               ),
             ],
           ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(35),
+              onTap: onTap,
+              child: Center(
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 28,
+                ),
+              ),
+            ),
+          ),
         ),
-      ),
+        const SizedBox(height: 8),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
-
 
 }

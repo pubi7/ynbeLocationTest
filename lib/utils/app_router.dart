@@ -17,6 +17,8 @@ class AppRouter {
       // Allow specific routes without redirect
       if (state.uri.path == '/sales-history' ||
           state.uri.path == '/sales-orders' ||
+          state.uri.path == '/sales-entry' ||
+          state.uri.path == '/order-screen' ||
           state.uri.path == '/settings') {
         return null;
       }
@@ -26,10 +28,6 @@ class AppRouter {
       
       if (!isLoggedIn) {
         return '/login';
-      }
-      
-      if (isLoggedIn) {
-        return '/sales-dashboard';
       }
       
       return null;

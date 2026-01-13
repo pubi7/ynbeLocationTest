@@ -3,9 +3,12 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/order_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/product_provider.dart';
 import '../../models/order_model.dart';
+import '../../models/product_model.dart';
 import '../../widgets/hamburger_menu.dart';
 import '../../widgets/bottom_navigation.dart';
+import 'package:flutter/services.dart';
 
 class OrderScreen extends StatefulWidget {
   const OrderScreen({super.key});
@@ -61,7 +64,7 @@ class _OrderScreenState extends State<OrderScreen> {
     if (_orderItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please add at least one item to the order'),
+          content: Text('Захиалгад дор хаяж нэг бүтээгдэхүүн нэмнэ үү'),
           backgroundColor: Colors.red,
         ),
       );
@@ -98,12 +101,82 @@ class _OrderScreenState extends State<OrderScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Order created successfully!'),
+          content: Text('Захиалга амжилттай үүсгэлээ!'),
           backgroundColor: Colors.green,
         ),
       );
       context.go('/sales-dashboard');
     }
+  }
+
+  Future<void> _printReceipt() async {
+    if (_orderItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Захиалгад бүтээгдэхүүн нэмнэ үү'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Баримт хэвлэх функц - POS машинд дамжуулах
+    final receipt = _generateReceipt();
+    
+    // Clipboard руу хуулах
+    await Clipboard.setData(ClipboardData(text: receipt));
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Баримт clipboard руу хуулагдлаа. POS машинд дамжуулна уу.'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      
+      // POS машинд дамжуулах (энд бодит POS API дуудаж болно)
+      _sendToPOS(receipt);
+    }
+  }
+
+  String _generateReceipt() {
+    final buffer = StringBuffer();
+    buffer.writeln('═══════════════════════════════');
+    buffer.writeln('        ЗАХИАЛГЫН БАРИМТ');
+    buffer.writeln('═══════════════════════════════');
+    buffer.writeln('Огноо: ${DateTime.now().toString().split('.')[0]}');
+    buffer.writeln('Харилцагч: ${_customerNameController.text}');
+    buffer.writeln('Утас: ${_customerPhoneController.text}');
+    buffer.writeln('Хаяг: ${_customerAddressController.text}');
+    buffer.writeln('───────────────────────────────');
+    buffer.writeln('БҮТЭЭГДЭХҮҮН');
+    buffer.writeln('───────────────────────────────');
+    
+    for (var item in _orderItems) {
+      buffer.writeln('${item.productName}');
+      buffer.writeln('  ${item.quantity} × ${item.unitPrice.toStringAsFixed(0)}₮ = ${item.totalPrice.toStringAsFixed(0)}₮');
+    }
+    
+    buffer.writeln('───────────────────────────────');
+    buffer.writeln('НИЙТ: ${_totalAmount.toStringAsFixed(0)}₮');
+    buffer.writeln('═══════════════════════════════');
+    
+    if (_notesController.text.trim().isNotEmpty) {
+      buffer.writeln('Тэмдэглэл: ${_notesController.text}');
+    }
+    
+    buffer.writeln('Баярлалаа!');
+    buffer.writeln('═══════════════════════════════');
+    
+    return buffer.toString();
+  }
+
+  void _sendToPOS(String receipt) {
+    // Энд бодит POS машинд дамжуулах API дуудаж болно
+    // Жишээ нь: Bluetooth, network printer, эсвэл API endpoint
+    print('POS руу дамжуулж байна:');
+    print(receipt);
   }
 
   @override
@@ -454,46 +527,87 @@ class _OrderScreenState extends State<OrderScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Submit Button
-                  Container(
-                    height: 56,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF3B82F6).withOpacity(0.3),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: ElevatedButton(
-                      onPressed: _isLoading ? null : _submitOrder,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF3B82F6),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: _isLoading
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2,
+                  // Action Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          height: 56,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF10B981).withOpacity(0.3),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
                               ),
-                            )
-                          : const Text(
-                              'Create Order',
+                            ],
+                          ),
+                          child: ElevatedButton.icon(
+                            onPressed: _isLoading ? null : _printReceipt,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF10B981),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            icon: const Icon(Icons.print),
+                            label: const Text(
+                              'Баримт хэвлэх',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                    ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Container(
+                          height: 56,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF3B82F6).withOpacity(0.3),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _submitOrder,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF3B82F6),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Захиалга үүсгэх',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -516,28 +630,53 @@ class _AddOrderItemDialog extends StatefulWidget {
 
 class _AddOrderItemDialogState extends State<_AddOrderItemDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _productNameController = TextEditingController();
   final _quantityController = TextEditingController(text: '1');
   final _unitPriceController = TextEditingController();
+  Product? _selectedProduct;
 
   @override
   void dispose() {
-    _productNameController.dispose();
     _quantityController.dispose();
     _unitPriceController.dispose();
     super.dispose();
   }
 
+  void _onProductSelected(Product? product) {
+    setState(() {
+      _selectedProduct = product;
+      if (product != null) {
+        _unitPriceController.text = product.price.toStringAsFixed(0);
+        _calculateTotal();
+      } else {
+        _unitPriceController.clear();
+      }
+    });
+  }
+
+  void _calculateTotal() {
+    // Үнэ автоматаар тооцогдож харагдана - UI дээр Consumer builder дотор тооцогдоно
+    setState(() {});
+  }
+
   void _addItem() {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedProduct == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Бүтээгдэхүүн сонгоно уу'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     final quantity = int.parse(_quantityController.text);
-    final unitPrice = double.parse(_unitPriceController.text);
+    final unitPrice = _selectedProduct!.price;
     final totalPrice = quantity * unitPrice;
 
     final item = OrderItem(
-      productId: DateTime.now().millisecondsSinceEpoch.toString(),
-      productName: _productNameController.text.trim(),
+      productId: _selectedProduct!.id,
+      productName: _selectedProduct!.name,
       quantity: quantity,
       unitPrice: unitPrice,
       totalPrice: totalPrice,
@@ -549,84 +688,150 @@ class _AddOrderItemDialogState extends State<_AddOrderItemDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Add Order Item'),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: _productNameController,
-              decoration: const InputDecoration(
-                labelText: 'Product Name',
-                border: OutlineInputBorder(),
+    return Consumer<ProductProvider>(
+      builder: (context, productProvider, child) {
+        final totalPrice = _selectedProduct != null && _quantityController.text.isNotEmpty
+            ? (int.tryParse(_quantityController.text) ?? 1) * _selectedProduct!.price
+            : 0.0;
+
+        return AlertDialog(
+          title: const Text('Бүтээгдэхүүн нэмэх'),
+          content: SingleChildScrollView(
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Бүтээгдэхүүний сонголт
+                  DropdownButtonFormField<Product>(
+                    value: _selectedProduct,
+                    decoration: const InputDecoration(
+                      labelText: 'Бүтээгдэхүүн *',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.inventory_2),
+                    ),
+                    hint: const Text('Бүтээгдэхүүн сонгох'),
+                    items: productProvider.products.map((product) {
+                      return DropdownMenuItem<Product>(
+                        value: product,
+                        child: Text(product.name),
+                      );
+                    }).toList(),
+                    onChanged: _onProductSelected,
+                    validator: (value) {
+                      if (value == null) {
+                        return 'Бүтээгдэхүүн сонгоно уу';
+                      }
+                      return null;
+                    },
+                  ),
+                  if (_selectedProduct != null && _selectedProduct!.description != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Text(
+                        _selectedProduct!.description!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _quantityController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Тоо ширхэг *',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.numbers),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Шаардлагатай';
+                            }
+                            if (int.tryParse(value.trim()) == null || int.parse(value.trim()) <= 0) {
+                              return 'Буруу';
+                            }
+                            return null;
+                          },
+                          onChanged: (value) {
+                            _calculateTotal();
+                            setState(() {});
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _unitPriceController,
+                          keyboardType: TextInputType.number,
+                          readOnly: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Нэгж үнэ',
+                            border: OutlineInputBorder(),
+                            prefixText: '',
+                            suffixText: '₮',
+                            prefixIcon: Icon(Icons.attach_money),
+                          ),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF3B82F6),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Нийт үнэ
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue[200]!),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Нийт үнэ:',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          '${totalPrice.toStringAsFixed(0)}₮',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF3B82F6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Please enter product name';
-                }
-                return null;
-              },
             ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _quantityController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Quantity',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Required';
-                      }
-                      if (int.tryParse(value.trim()) == null || int.parse(value.trim()) <= 0) {
-                        return 'Invalid';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: TextFormField(
-                    controller: _unitPriceController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Unit Price',
-                      prefixText: '\$',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Required';
-                      }
-                      if (double.tryParse(value.trim()) == null || double.parse(value.trim()) <= 0) {
-                        return 'Invalid';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-              ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Цуцлах'),
+            ),
+            ElevatedButton(
+              onPressed: _addItem,
+              child: const Text('Нэмэх'),
             ),
           ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: _addItem,
-          child: const Text('Add Item'),
-        ),
-      ],
+        );
+      },
     );
   }
 }

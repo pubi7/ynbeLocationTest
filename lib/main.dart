@@ -5,6 +5,8 @@ import 'providers/auth_provider.dart';
 import 'providers/location_provider.dart';
 import 'providers/sales_provider.dart';
 import 'providers/order_provider.dart';
+import 'providers/product_provider.dart';
+import 'providers/shop_provider.dart';
 import 'utils/app_router.dart';
 
 void main() async {
@@ -24,6 +26,8 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => LocationProvider()),
         ChangeNotifierProvider(create: (_) => SalesProvider()),
         ChangeNotifierProvider(create: (_) => OrderProvider()),
+        ChangeNotifierProvider(create: (_) => ProductProvider()),
+        ChangeNotifierProvider(create: (_) => ShopProvider()),
       ],
       child: Consumer<AuthProvider>(
         builder: (context, authProvider, _) {

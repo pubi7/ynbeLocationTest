@@ -26,8 +26,8 @@ dependencies:
   flutter_map: ^6.1.0  # Free OpenStreetMap alternative
   
   # HTTP & API
-  http: ^1.1.2
-  dio: ^5.4.0
+  http: ^1.1.0
+  dio: ^5.5.0
   
   # Local Storage
   shared_preferences: ^2.2.2
@@ -44,9 +44,14 @@ dependencies:
   intl: ^0.19.0
   table_calendar: ^3.0.9
   
+  # Printing
+  printing: ^5.12.0
+  pdf: ^3.10.7
+  qr_flutter: ^4.1.0
+  path_provider: ^2.1.1
   
-  # Background Tasks (temporarily disabled for build compatibility)
-  # workmanager: ^0.5.2
+  # URL Launcher
+  url_launcher: ^6.2.5
 
 dev_dependencies:
   flutter_test:

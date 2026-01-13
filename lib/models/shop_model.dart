@@ -9,6 +9,7 @@ class Shop {
   final double longitude;
   final String phone;
   final String? email;
+  final String? registrationNumber; // Бүртгэлийн дугаар
   final String status; // 'active', 'inactive'
   final List<Order> orders;
   final List<Sales> sales;
@@ -22,6 +23,7 @@ class Shop {
     required this.longitude,
     required this.phone,
     this.email,
+    this.registrationNumber,
     required this.status,
     required this.orders,
     required this.sales,
@@ -37,6 +39,7 @@ class Shop {
       longitude: json['longitude'].toDouble(),
       phone: json['phone'],
       email: json['email'],
+      registrationNumber: json['registrationNumber'],
       status: json['status'],
       orders: (json['orders'] as List)
           .map((order) => Order.fromJson(order))
@@ -57,6 +60,7 @@ class Shop {
       'longitude': longitude,
       'phone': phone,
       'email': email,
+      'registrationNumber': registrationNumber,
       'status': status,
       'orders': orders.map((order) => order.toJson()).toList(),
       'sales': sales.map((sale) => sale.toJson()).toList(),
