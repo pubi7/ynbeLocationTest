@@ -98,7 +98,8 @@ class SalesProvider extends ChangeNotifier {
 
   List<Sales> getSalesByDateRange(DateTime startDate, DateTime endDate) {
     return _sales.where((sale) {
-      return sale.saleDate.isAfter(startDate) && sale.saleDate.isBefore(endDate);
+      // Inclusive start, exclusive end
+      return !sale.saleDate.isBefore(startDate) && sale.saleDate.isBefore(endDate);
     }).toList();
   }
 
@@ -108,6 +109,59 @@ class SalesProvider extends ChangeNotifier {
 
   double getTotalSales() {
     return _sales.fold(0.0, (sum, sale) => sum + sale.amount);
+  }
+
+  double getTotalSalesForRange(DateTime startInclusive, DateTime endExclusive) {
+    return _sales
+        .where((s) => !s.saleDate.isBefore(startInclusive) && s.saleDate.isBefore(endExclusive))
+        .fold(0.0, (sum, s) => sum + s.amount);
+  }
+
+  double getTotalSalesForDay(DateTime day) {
+    final start = DateTime(day.year, day.month, day.day);
+    final end = start.add(const Duration(days: 1));
+    return getTotalSalesForRange(start, end);
+  }
+
+  double getTotalSalesForWeek(DateTime dayInWeek, {int weekStartsOn = DateTime.monday}) {
+    // weekStartsOn should be DateTime.monday..DateTime.sunday
+    final day = DateTime(dayInWeek.year, dayInWeek.month, dayInWeek.day);
+    final diff = (day.weekday - weekStartsOn) % 7;
+    final start = day.subtract(Duration(days: diff));
+    final end = start.add(const Duration(days: 7));
+    return getTotalSalesForRange(start, end);
+  }
+
+  double getTotalSalesForMonth(DateTime dayInMonth) {
+    final start = DateTime(dayInMonth.year, dayInMonth.month, 1);
+    final end = DateTime(dayInMonth.year, dayInMonth.month + 1, 1);
+    return getTotalSalesForRange(start, end);
+  }
+
+  /// Returns totals grouped by hour (0..23) for the given day.
+  /// Missing hours will not be present in the map (treat as 0).
+  Map<int, double> getTotalSalesByHourForDay(DateTime day) {
+    final start = DateTime(day.year, day.month, day.day);
+    final end = start.add(const Duration(days: 1));
+    final Map<int, double> totals = {};
+    for (final s in _sales) {
+      if (s.saleDate.isBefore(start) || !s.saleDate.isBefore(end)) continue;
+      final h = s.saleDate.hour;
+      totals[h] = (totals[h] ?? 0) + s.amount;
+    }
+    return totals;
+  }
+
+  /// Returns totals grouped by day (DateTime at midnight) for the range.
+  /// Missing days will not be present in the map (treat as 0).
+  Map<DateTime, double> getTotalSalesByDayForRange(DateTime startInclusive, DateTime endExclusive) {
+    final Map<DateTime, double> totals = {};
+    for (final s in _sales) {
+      if (s.saleDate.isBefore(startInclusive) || !s.saleDate.isBefore(endExclusive)) continue;
+      final d = DateTime(s.saleDate.year, s.saleDate.month, s.saleDate.day);
+      totals[d] = (totals[d] ?? 0) + s.amount;
+    }
+    return totals;
   }
 
   void clearError() {

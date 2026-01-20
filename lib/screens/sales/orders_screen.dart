@@ -252,7 +252,7 @@ class OrdersScreen extends StatelessWidget {
                               ),
                             ],
                           ),
-                          onTap: () => _showOrderDetail(context, order),
+                          onTap: () => context.go('/order-details/${order.id}', extra: order),
                         ),
                       );
                     },
@@ -313,73 +313,4 @@ class OrdersScreen extends StatelessWidget {
     );
   }
 
-  void _showOrderDetail(BuildContext context, dynamic order) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.shopping_cart, color: Color(0xFF3B82F6)),
-            const SizedBox(width: 8),
-            const Text('Order Details'),
-          ],
-        ),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildDetailRow('Customer Name', order.customerName),
-              _buildDetailRow('Phone', order.customerPhone),
-              _buildDetailRow('Address', order.customerAddress),
-              _buildDetailRow('Status', order.status.toUpperCase()),
-              _buildDetailRow('Total Amount', '\$${order.totalAmount.toStringAsFixed(2)}', isAmount: true),
-              _buildDetailRow('Order Date', order.orderDate.toString().split(' ')[0]),
-              _buildDetailRow('Order Time', order.orderDate.toString().split(' ')[1].substring(0, 8)),
-              if (order.notes != null && order.notes!.isNotEmpty) 
-                _buildDetailRow('Notes', order.notes!),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value, {bool isAmount = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              '$label:',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: 14,
-                color: isAmount ? const Color(0xFF3B82F6) : Colors.black87,
-                fontWeight: isAmount ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

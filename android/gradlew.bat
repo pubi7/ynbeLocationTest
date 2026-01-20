@@ -19,6 +19,13 @@ set APP_HOME=%DIRNAME%
 @rem Find java.exe
 if defined JAVA_HOME goto findJavaFromJavaHome
 
+@rem If JAVA_HOME is not set, try Android Studio bundled JDK (JBR).
+set "AS_JBR=C:\Program Files\Android\Android Studio\jbr"
+if exist "%AS_JBR%\bin\java.exe" (
+  set "JAVA_HOME=%AS_JBR%"
+  goto findJavaFromJavaHome
+)
+
 set JAVA_EXE=java.exe
 %JAVA_EXE% -version >NUL 2>&1
 if "%ERRORLEVEL%" == "0" goto init

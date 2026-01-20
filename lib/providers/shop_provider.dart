@@ -4,69 +4,37 @@ import '../models/sales_model.dart';
 
 class ShopProvider extends ChangeNotifier {
   List<Shop> _shops = [];
+  bool _isUsingMock = true;
   bool _isLoading = false;
   String? _error;
 
   List<Shop> get shops => _shops;
+  bool get isUsingMock => _isUsingMock;
   bool get isLoading => _isLoading;
   String? get error => _error;
 
   ShopProvider() {
-    _loadMockData();
+    // Start empty (no demo/mock shops)
+    _shops = [];
+    _isUsingMock = false;
   }
 
   void _loadMockData() {
-    _shops = [
-      Shop(
-        id: '1',
-        name: 'Дэлгүүр 1 - Сүхбаатар дүүрэг',
-        address: 'Сүхбаатар дүүрэг, 1-р хороо',
-        latitude: 47.9200,
-        longitude: 106.9200,
-        phone: '99112233',
-        status: 'active',
-        orders: [],
-        sales: [],
-        lastVisit: DateTime.now().subtract(const Duration(days: 1)),
-      ),
-      Shop(
-        id: '2',
-        name: 'Дэлгүүр 2 - Баянзүрх дүүрэг',
-        address: 'Баянзүрх дүүрэг, 2-р хороо',
-        latitude: 47.9150,
-        longitude: 106.9150,
-        phone: '99223344',
-        status: 'active',
-        orders: [],
-        sales: [],
-        lastVisit: DateTime.now().subtract(const Duration(days: 2)),
-      ),
-      Shop(
-        id: '3',
-        name: 'Дэлгүүр 3 - Хан-Уул дүүрэг',
-        address: 'Хан-Уул дүүрэг, 3-р хороо',
-        latitude: 47.9250,
-        longitude: 106.9250,
-        phone: '99334455',
-        status: 'active',
-        orders: [],
-        sales: [],
-        lastVisit: DateTime.now().subtract(const Duration(days: 3)),
-      ),
-      Shop(
-        id: '4',
-        name: 'Дэлгүүр 4 - Баянгол дүүрэг',
-        address: 'Баянгол дүүрэг, 4-р хороо',
-        latitude: 47.9300,
-        longitude: 106.9300,
-        phone: '99445566',
-        status: 'active',
-        orders: [],
-        sales: [],
-        lastVisit: DateTime.now().subtract(const Duration(days: 5)),
-      ),
-    ];
+    // Deprecated: kept only for backward compatibility with older screens.
+    // Intentionally leave empty so demo shops do not appear.
+    _shops = [];
+    _isUsingMock = false;
     notifyListeners();
+  }
+
+  void setShops(List<Shop> shops) {
+    _shops = shops;
+    _isUsingMock = false;
+    notifyListeners();
+  }
+
+  void resetToMock() {
+    _loadMockData();
   }
 
   Shop? getShopById(String id) {

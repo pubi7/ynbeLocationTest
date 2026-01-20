@@ -8,6 +8,10 @@ class HamburgerMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final isLoggedIn = authProvider.isLoggedIn;
+    final role = authProvider.userRole;
+
     return Drawer(
       child: Container(
         decoration: const BoxDecoration(
@@ -92,50 +96,62 @@ class HamburgerMenu extends StatelessWidget {
                       const Color(0xFF6366F1),
                       () => _navigateToDashboard(context),
                     ),
+                    if (role != 'order')
+                      _buildMenuItem(
+                        context,
+                        'Гүйцэтгэл',
+                        Icons.insights_rounded,
+                        const Color(0xFF10B981),
+                        () => context.go('/performance'),
+                      ),
+                    if (role == 'order')
+                      _buildMenuItem(
+                        context,
+                        'Take Order',
+                        Icons.shopping_cart_rounded,
+                        const Color(0xFF3B82F6),
+                        () => context.go('/order-screen'),
+                      ),
+                    if (role != 'order')
+                      _buildMenuItem(
+                        context,
+                        'Sales History',
+                        Icons.history_rounded,
+                        const Color(0xFFF59E0B),
+                        () => context.go('/sales-history'),
+                      ),
+                    if (role == 'order')
+                      _buildMenuItem(
+                        context,
+                        'Orders',
+                        Icons.list_alt_rounded,
+                        const Color(0xFF06B6D4),
+                        () => context.go('/sales-orders'),
+                      ),
                     _buildMenuItem(
                       context,
-                      'Sales Entry',
-                      Icons.add_rounded,
-                      const Color(0xFF10B981),
-                      () => context.go('/sales-entry'),
-                    ),
-                    _buildMenuItem(
-                      context,
-                      'Take Order',
-                      Icons.shopping_cart_rounded,
-                      const Color(0xFF3B82F6),
-                      () => context.go('/order-screen'),
-                    ),
-                    _buildMenuItem(
-                      context,
-                      'Sales History',
-                      Icons.history_rounded,
-                      const Color(0xFFF59E0B),
-                      () => context.go('/sales-history'),
-                    ),
-                    _buildMenuItem(
-                      context,
-                      'Orders',
-                      Icons.list_alt_rounded,
-                      const Color(0xFF06B6D4),
-                      () => context.go('/sales-orders'),
+                      'Settings',
+                      Icons.settings_rounded,
+                      const Color(0xFF64748B),
+                      () => context.go('/settings'),
                     ),
                     const Divider(height: 40),
-                    _buildMenuItem(
-                      context,
-                      'Login',
-                      Icons.login_rounded,
-                      const Color(0xFF6366F1),
-                      () => context.go('/login'),
-                    ),
-                    const Divider(height: 40),
-                    _buildMenuItem(
-                      context,
-                      'Logout',
-                      Icons.logout_rounded,
-                      const Color(0xFFEF4444),
-                      () => _handleLogout(context),
-                    ),
+                    if (!isLoggedIn)
+                      _buildMenuItem(
+                        context,
+                        'Login',
+                        Icons.login_rounded,
+                        const Color(0xFF6366F1),
+                        () => context.go('/login'),
+                      ),
+                    if (isLoggedIn)
+                      _buildMenuItem(
+                        context,
+                        'Logout',
+                        Icons.logout_rounded,
+                        const Color(0xFFEF4444),
+                        () => _handleLogout(context),
+                      ),
                   ],
                 ),
               ),

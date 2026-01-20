@@ -48,6 +48,24 @@ class AuthProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       }
+
+      // Order user (separate account)
+      if (email == 'order@company.com' && password == 'order123') {
+        _user = User(
+          id: '2',
+          name: 'Order Staff',
+          email: email,
+          role: 'order',
+          companyId: 'company1',
+          createdAt: DateTime.now(),
+        );
+        _userRole = 'order';
+        _isLoggedIn = true;
+
+        await _saveUserData();
+        notifyListeners();
+        return true;
+      }
       return false;
     } catch (e) {
       return false;

@@ -43,3 +43,18 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Node / local backend
+node_modules/
+
+# Android local / generated files
+android/.gradle/
+android/local.properties
+
+# iOS generated / ephemeral
+ios/Flutter/ephemeral/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+
+# Accidental duplicates
+web/manifest(1).json

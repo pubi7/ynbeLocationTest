@@ -7,7 +7,7 @@ class Sales {
   final double amount;
   final DateTime saleDate;
   final String? notes;
-  final String? paymentMethod; // 'билэн', 'данс', 'зээл'
+  final String? paymentMethod; // 'бэлэн', 'данс', 'зээл'
   final double? latitude; // GPS координат
   final double? longitude; // GPS координат
   final int? quantity; // Барааны тоо хэмжээ

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/location_provider.dart';
 import '../../widgets/hamburger_menu.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -44,7 +46,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (mounted) {
       if (success) {
-        context.go('/sales-dashboard');
+        // Login succeeded -> start location tracking immediately (asks permission if needed)
+        // Avoid auto-prompt on web unless explicitly desired.
+        if (!kIsWeb) {
+          await Provider.of<LocationProvider>(context, listen: false).startTracking();
+        }
+
+        final role = Provider.of<AuthProvider>(context, listen: false).userRole;
+        if (role == 'order') {
+          context.go('/order-screen');
+        } else {
+          context.go('/sales-dashboard');
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -260,6 +273,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                                 const SizedBox(height: 12),
                                 _buildDemoCredential('Sales Account', 'sales@company.com', 'sales123'),
+                                const SizedBox(height: 8),
+                                _buildDemoCredential('Order Account', 'order@company.com', 'order123'),
                               ],
                             ),
                           ),

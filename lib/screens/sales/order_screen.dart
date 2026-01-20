@@ -6,9 +6,9 @@ import '../../providers/auth_provider.dart';
 import '../../providers/product_provider.dart';
 import '../../models/order_model.dart';
 import '../../models/product_model.dart';
+import '../../services/pos_receipt_service.dart';
 import '../../widgets/hamburger_menu.dart';
 import '../../widgets/bottom_navigation.dart';
-import 'package:flutter/services.dart';
 
 class OrderScreen extends StatefulWidget {
   const OrderScreen({super.key});
@@ -120,63 +120,40 @@ class _OrderScreenState extends State<OrderScreen> {
       return;
     }
 
-    // Баримт хэвлэх функц - POS машинд дамжуулах
-    final receipt = _generateReceipt();
-    
-    // Clipboard руу хуулах
-    await Clipboard.setData(ClipboardData(text: receipt));
-    
-    if (mounted) {
+    // POS print should be based on the same data user sees on screen.
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final order = Order(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      customerName: _customerNameController.text.trim().isEmpty ? 'Харилцагч' : _customerNameController.text.trim(),
+      customerPhone: _customerPhoneController.text.trim(),
+      customerAddress: _customerAddressController.text.trim(),
+      items: List.from(_orderItems),
+      totalAmount: _totalAmount,
+      status: 'pending',
+      orderDate: DateTime.now(),
+      notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+      salespersonId: authProvider.user?.id ?? '',
+      salespersonName: authProvider.user?.name ?? '',
+    );
+
+    try {
+      await PosReceiptService.printOrderReceipt(order);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Баримт clipboard руу хуулагдлаа. POS машинд дамжуулна уу.'),
+          content: Text('POS баримт хэвлэх цонх нээгдлээ'),
           backgroundColor: Colors.green,
-          duration: Duration(seconds: 3),
         ),
       );
-      
-      // POS машинд дамжуулах (энд бодит POS API дуудаж болно)
-      _sendToPOS(receipt);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('POS хэвлэхэд алдаа гарлаа: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
-  }
-
-  String _generateReceipt() {
-    final buffer = StringBuffer();
-    buffer.writeln('═══════════════════════════════');
-    buffer.writeln('        ЗАХИАЛГЫН БАРИМТ');
-    buffer.writeln('═══════════════════════════════');
-    buffer.writeln('Огноо: ${DateTime.now().toString().split('.')[0]}');
-    buffer.writeln('Харилцагч: ${_customerNameController.text}');
-    buffer.writeln('Утас: ${_customerPhoneController.text}');
-    buffer.writeln('Хаяг: ${_customerAddressController.text}');
-    buffer.writeln('───────────────────────────────');
-    buffer.writeln('БҮТЭЭГДЭХҮҮН');
-    buffer.writeln('───────────────────────────────');
-    
-    for (var item in _orderItems) {
-      buffer.writeln('${item.productName}');
-      buffer.writeln('  ${item.quantity} × ${item.unitPrice.toStringAsFixed(0)}₮ = ${item.totalPrice.toStringAsFixed(0)}₮');
-    }
-    
-    buffer.writeln('───────────────────────────────');
-    buffer.writeln('НИЙТ: ${_totalAmount.toStringAsFixed(0)}₮');
-    buffer.writeln('═══════════════════════════════');
-    
-    if (_notesController.text.trim().isNotEmpty) {
-      buffer.writeln('Тэмдэглэл: ${_notesController.text}');
-    }
-    
-    buffer.writeln('Баярлалаа!');
-    buffer.writeln('═══════════════════════════════');
-    
-    return buffer.toString();
-  }
-
-  void _sendToPOS(String receipt) {
-    // Энд бодит POS машинд дамжуулах API дуудаж болно
-    // Жишээ нь: Bluetooth, network printer, эсвэл API endpoint
-    print('POS руу дамжуулж байна:');
-    print(receipt);
   }
 
   @override

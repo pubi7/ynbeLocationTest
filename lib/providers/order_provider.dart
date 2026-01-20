@@ -121,6 +121,12 @@ class OrderProvider extends ChangeNotifier {
     return _orders.where((order) => order.status == status).toList();
   }
 
+  Order? getOrderById(String id) {
+    final idx = _orders.indexWhere((o) => o.id == id);
+    if (idx == -1) return null;
+    return _orders[idx];
+  }
+
   List<Order> getOrdersByDateRange(DateTime startDate, DateTime endDate) {
     return _orders.where((order) {
       return order.orderDate.isAfter(startDate) && order.orderDate.isBefore(endDate);

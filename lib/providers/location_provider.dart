@@ -27,10 +27,13 @@ class LocationProvider extends ChangeNotifier {
   static const String _currentLocationKey = 'current_location';
   static const String _wakeTimeKey = 'wake_time';
   static const String _sleepTimeKey = 'sleep_time';
+  static const String _autoStartLocationKey = 'auto_start_location_tracking';
+  bool _autoStartEnabled = true;
 
   LocationProvider() {
     _loadSavedLocations();
     _loadSavedTimes();
+    _loadAutoStartPref();
   }
 
   LatLng? get currentLocation => _currentLocation;
@@ -43,6 +46,40 @@ class LocationProvider extends ChangeNotifier {
   DateTime? get sleepTime => _sleepTime; // Унтаасан цаг
   DateTime? get lastLocationUpdateTime => _lastLocationUpdateTime; // GPS байршлын сүүлийн шинэчлэлтийн цаг
   String? get currentIpAddress => _currentIpAddress; // Одоогийн IP хаяг
+  bool get autoStartEnabled => _autoStartEnabled;
+
+  Future<void> _loadAutoStartPref() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _autoStartEnabled = prefs.getBool(_autoStartLocationKey) ?? true;
+
+      // Auto-start location tracking on app entry (user requested: "ороход шууд асаа").
+      // Skip on web to avoid unexpected permission prompts in browser.
+      if (_autoStartEnabled && !kIsWeb) {
+        Future.microtask(() => startTracking());
+      }
+    } catch (e) {
+      // If prefs fails, default behavior: auto-start on mobile.
+      _autoStartEnabled = true;
+      if (!kIsWeb) {
+        Future.microtask(() => startTracking());
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> setAutoStartEnabled(bool enabled) async {
+    _autoStartEnabled = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_autoStartLocationKey, enabled);
+    } catch (_) {}
+    notifyListeners();
+
+    if (enabled && !kIsWeb) {
+      await startTracking();
+    }
+  }
   
   /// Check if location should be added to history (20 meter minimum distance)
   bool _shouldAddToHistory(LatLng newLocation) {
@@ -347,13 +384,13 @@ class LocationProvider extends ChangeNotifier {
             await _saveLocations();
             _isTracking = true;
             _isLocationServiceEnabled = false;
-            _errorMessage = null; // Сүүлийн мэдэгдэх байршил ашиглаж байгаа үед алдаа харуулахгүй
+            _errorMessage = null; // Сүүлийн мэдэгдсэн байршил ашиглаж байгаа үед алдаа харуулахгүй
             notifyListeners();
-            print('Оффлайн горим: Сүүлийн мэдэгдэх байршил ашиглалаа: ${lastKnownPos.latitude}, ${lastKnownPos.longitude}');
+            print('Офлайн горим: Сүүлийн мэдэгдсэн байршил ашиглалаа: ${lastKnownPos.latitude}, ${lastKnownPos.longitude}');
             return;
           }
         } catch (e) {
-          print('Оффлайн горимд сүүлийн байршил авах алдаа: $e');
+          print('Офлайн горимд сүүлийн байршил авах алдаа: $e');
         }
         
         // Try to use saved location
@@ -362,7 +399,7 @@ class LocationProvider extends ChangeNotifier {
           _isLocationServiceEnabled = false;
           _errorMessage = null; // Хадгалагдсан байршил ашиглаж байгаа үед алдаа харуулахгүй
           notifyListeners();
-          print('Оффлайн горим: Хадгалагдсан байршил ашиглалаа: ${_currentLocation!.latitude}, ${_currentLocation!.longitude}');
+          print('Офлайн горим: Хадгалагдсан байршил ашиглалаа: ${_currentLocation!.latitude}, ${_currentLocation!.longitude}');
           return;
         }
         
@@ -377,7 +414,7 @@ class LocationProvider extends ChangeNotifier {
           _isLocationServiceEnabled = false;
           _errorMessage = null; // IP-аар олсон байршил ашиглаж байгаа үед алдаа харуулахгүй
           notifyListeners();
-          print('Оффлайн горим: IP хаягаар байршил тодорхойллоо: ${_currentLocation!.latitude}, ${_currentLocation!.longitude}');
+          print('Офлайн горим: IP хаягаар байршил тодорхойллоо: ${_currentLocation!.latitude}, ${_currentLocation!.longitude}');
           return;
         }
         
@@ -484,14 +521,14 @@ class LocationProvider extends ChangeNotifier {
               }
               _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
               await _saveLocations();
-              _errorMessage = null; // Сүүлийн мэдэгдэх байршил ашиглаж байгаа үед алдаа харуулахгүй
+              _errorMessage = null; // Сүүлийн мэдэгдсэн байршил ашиглаж байгаа үед алдаа харуулахгүй
               notifyListeners();
-              print('Сүүлийн мэдэгдэх байршил ашиглалаа: ${lastKnownPos.latitude}, ${lastKnownPos.longitude}');
+              print('Сүүлийн мэдэгдсэн байршил ашиглалаа: ${lastKnownPos.latitude}, ${lastKnownPos.longitude}');
             } else {
               throw Exception('Last known position not available');
             }
           } catch (e3) {
-            print('Сүүлийн мэдэгдэх байршил байхгүй: $e3');
+            print('Сүүлийн мэдэгдсэн байршил байхгүй: $e3');
             
             // Try to use saved location from SharedPreferences
             if (_currentLocation != null) {
@@ -860,13 +897,13 @@ class LocationProvider extends ChangeNotifier {
           }
           _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
           await _saveLocations();
-          _errorMessage = null; // Сүүлийн мэдэгдэх байршил ашиглаж байгаа үед алдаа харуулахгүй
+          _errorMessage = null; // Сүүлийн мэдэгдсэн байршил ашиглаж байгаа үед алдаа харуулахгүй
           notifyListeners();
-          print('Сүүлийн мэдэгдэх байршил ашиглалаа: ${lastKnownPos.latitude}, ${lastKnownPos.longitude}');
+          print('Сүүлийн мэдэгдсэн байршил ашиглалаа: ${lastKnownPos.latitude}, ${lastKnownPos.longitude}');
           return;
         }
       } catch (e3) {
-        print('Сүүлийн мэдэгдэх байршил байхгүй: $e3');
+        print('Сүүлийн мэдэгдсэн байршил байхгүй: $e3');
       }
       
       // Try to use saved location from SharedPreferences
@@ -891,12 +928,12 @@ class LocationProvider extends ChangeNotifier {
           }
           _lastLocationUpdateTime = DateTime.now(); // Шинэчлэлтийн цагийг тэмдэглэх
           await _saveLocations();
-          _errorMessage = null; // Сүүлийн мэдэгдэх байршил ашиглаж байгаа үед алдаа харуулахгүй
+          _errorMessage = null; // Сүүлийн мэдэгдсэн байршил ашиглаж байгаа үед алдаа харуулахгүй
           notifyListeners();
           return;
         }
       } catch (e2) {
-        print('Сүүлийн мэдэгдэх байршил авах алдаа: $e2');
+        print('Сүүлийн мэдэгдсэн байршил авах алдаа: $e2');
       }
       
       _errorMessage = 'Байршил шинэчлэх алдаа: ${e.toString()}';

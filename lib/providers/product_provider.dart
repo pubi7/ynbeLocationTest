@@ -3,52 +3,33 @@ import '../models/product_model.dart';
 
 class ProductProvider extends ChangeNotifier {
   List<Product> _products = [];
+  bool _isUsingMock = true;
 
   List<Product> get products => _products;
+  bool get isUsingMock => _isUsingMock;
 
   ProductProvider() {
-    _loadMockData();
+    // Start empty (no demo/mock products)
+    _products = [];
+    _isUsingMock = false;
   }
 
   void _loadMockData() {
-    _products = [
-      Product(
-        id: '1',
-        name: 'Бүтээгдэхүүн A',
-        price: 50000.0,
-        description: 'Тайлбар A',
-        category: 'Ангилал 1',
-      ),
-      Product(
-        id: '2',
-        name: 'Бүтээгдэхүүн B',
-        price: 75000.0,
-        description: 'Тайлбар B',
-        category: 'Ангилал 1',
-      ),
-      Product(
-        id: '3',
-        name: 'Бүтээгдэхүүн C',
-        price: 100000.0,
-        description: 'Тайлбар C',
-        category: 'Ангилал 2',
-      ),
-      Product(
-        id: '4',
-        name: 'Бүтээгдэхүүн D',
-        price: 125000.0,
-        description: 'Тайлбар D',
-        category: 'Ангилал 2',
-      ),
-      Product(
-        id: '5',
-        name: 'Бүтээгдэхүүн E',
-        price: 150000.0,
-        description: 'Тайлбар E',
-        category: 'Ангилал 3',
-      ),
-    ];
+    // Deprecated: kept only for backward compatibility with older screens.
+    // Intentionally leave empty so demo products do not appear.
+    _products = [];
+    _isUsingMock = false;
     notifyListeners();
+  }
+
+  void setProducts(List<Product> products) {
+    _products = products;
+    _isUsingMock = false;
+    notifyListeners();
+  }
+
+  void resetToMock() {
+    _loadMockData();
   }
 
   Product? getProductById(String id) {
