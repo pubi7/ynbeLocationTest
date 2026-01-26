@@ -270,17 +270,9 @@ class WarehouseWebBridge {
         return token;
       } catch (e) {
         // If @warehouse.com email doesn't exist in backend, throw error (no fallback)
+        // Re-throw DioException directly so MobileUserLoginProvider can handle it properly
         if (e is DioException) {
-          final statusCode = e.response?.statusCode;
-          if (statusCode == 429) {
-            final responseData = e.response?.data;
-            final errorMessage = responseData is Map 
-                ? responseData['message']?.toString() 
-                : responseData?.toString();
-            throw Exception(errorMessage ?? 'Too many login attempts, please try again later');
-          } else if (statusCode == 401 || statusCode == 403) {
-            throw Exception('Invalid credentials. User not found in backend.');
-          }
+          rethrow; // Let MobileUserLoginProvider handle DioException
         }
         rethrow;
       }
@@ -311,11 +303,9 @@ class WarehouseWebBridge {
             ? responseData['message']?.toString() ?? ''
             : responseData?.toString() ?? '';
         
-        if (statusCode == 429) {
-          // Rate limiting - throw with message
-          throw Exception(errorMessage.isNotEmpty 
-              ? errorMessage 
-              : 'Too many login attempts, please try again later');
+        if (statusCode == 404) {
+          // Agent-login endpoint not available (old backend version) - fallback to normal login
+          debugPrint('Agent login endpoint not available (404), trying normal login');
         } else if (statusCode == 401 || statusCode == 403) {
           // User is not registered in Weve site - throw specific error
           if (errorMessage.toLowerCase().contains('not registered') ||
@@ -323,13 +313,11 @@ class WarehouseWebBridge {
               errorMessage.toLowerCase().contains('user not found')) {
             throw Exception('USER_NOT_REGISTERED');
           } else {
+            // For agent-login, 401/403 usually means not registered
             throw Exception('USER_NOT_REGISTERED');
           }
-        } else if (statusCode == 404) {
-          // Agent-login endpoint not available (old backend version) - fallback to normal login
-          debugPrint('Agent login endpoint not available (404), trying normal login');
         } else {
-          // Other errors (network, 500, etc.) - rethrow
+          // For 429 and other errors - rethrow DioException so MobileUserLoginProvider can handle it
           rethrow;
         }
       } else {
@@ -357,19 +345,9 @@ class WarehouseWebBridge {
       await saveToken(token);
       return token;
     } catch (e) {
-      // If normal login also fails, check if it's invalid credentials
+      // If normal login also fails, rethrow DioException so MobileUserLoginProvider can handle it
       if (e is DioException) {
-        final statusCode = e.response?.statusCode;
-        final responseData = e.response?.data;
-        final errorMessage = responseData is Map 
-            ? responseData['message']?.toString() 
-            : responseData?.toString();
-        
-        if (statusCode == 429) {
-          throw Exception(errorMessage ?? 'Too many login attempts, please try again later');
-        } else if (statusCode == 401 || statusCode == 403) {
-          throw Exception('Invalid credentials. Нэвтрэх нэр эсвэл нууц үг буруу байна.');
-        }
+        rethrow; // Let MobileUserLoginProvider handle DioException
       }
       rethrow;
     }

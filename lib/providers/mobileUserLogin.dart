@@ -87,11 +87,16 @@ class MobileUserLoginProvider extends ChangeNotifier {
             : responseData?.toString() ?? '';
         
         if (statusCode == 429) {
-          _error = 'Хэт олон оролдлого хийсэн. Та түр хүлээгээд дахин оролдоно уу.';
+          // Rate limiting error
+          _error = errorMessage.isNotEmpty && !errorMessage.toLowerCase().contains('too many')
+              ? errorMessage
+              : 'Хэт олон оролдлого хийсэн. Та түр хүлээгээд дахин оролдоно уу.';
         } else if (statusCode == 401 || statusCode == 403) {
-          if (errorText.contains('USER_NOT_REGISTERED') || 
-              errorMessage.toLowerCase().contains('not registered') ||
-              errorMessage.toLowerCase().contains('бүртгэлгүй')) {
+          // Check if it's a user not registered error
+          if (errorMessage.toLowerCase().contains('not registered') ||
+              errorMessage.toLowerCase().contains('бүртгэлгүй') ||
+              errorMessage.toLowerCase().contains('user not found') ||
+              errorText.contains('USER_NOT_REGISTERED')) {
             _error = 'Та Weve сайтад бүртгэлгүй байна. Эхлээд Weve дээр бүртгүүлнэ үү.';
           } else {
             _error = 'Нэвтрэх нэр эсвэл нууц үг буруу байна.';
