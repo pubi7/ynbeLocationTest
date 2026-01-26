@@ -30,15 +30,20 @@ class SalesEntryScreen extends StatefulWidget {
 class _SalesEntryScreenState extends State<SalesEntryScreen> {
   final _formKey = GlobalKey<FormState>();
   final _notesController = TextEditingController();
-  
+  final _productSearchController = TextEditingController();
+
   String? _selectedShopName;
-  
+  bool _showProductList = false; // Control product list visibility
+
   // Олон бараа сонгох
   List<SalesItem> _selectedItems = [];
+  Set<String> _selectedProductIds = {}; // For multi-select
   String? _currentProductId;
   Product? _currentProduct;
   final _currentQuantityController = TextEditingController();
-  
+  final Map<String, int> _productQuantities =
+      {}; // Store quantities for each product
+
   bool _isLoading = false;
 
   @override
@@ -46,11 +51,13 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      final warehouseProvider = Provider.of<WarehouseProvider>(context, listen: false);
+      final warehouseProvider =
+          Provider.of<WarehouseProvider>(context, listen: false);
       if (!warehouseProvider.connected) return;
 
       // Read-only mode: auto-sync reference data (shops + products) from web if missing.
-      final productProvider = Provider.of<ProductProvider>(context, listen: false);
+      final productProvider =
+          Provider.of<ProductProvider>(context, listen: false);
       final shopProvider = Provider.of<ShopProvider>(context, listen: false);
 
       if (productProvider.products.isEmpty) {
@@ -59,7 +66,8 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       }
 
       if (shopProvider.shops.isEmpty) {
-        await warehouseProvider.refreshShops();
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        await warehouseProvider.refreshShops(authProvider: authProvider);
         shopProvider.setShops(warehouseProvider.shops);
       }
     });
@@ -69,33 +77,34 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   void dispose() {
     _currentQuantityController.dispose();
     _notesController.dispose();
+    _productSearchController.dispose();
     super.dispose();
   }
-  
+
   double get _totalAmount {
     return _selectedItems.fold(0.0, (sum, item) => sum + item.total);
   }
-  
+
   void _addProductToCart() {
     // Дэлгүүр сонгогдоогүй бол бараа нэмэхгүй
     if (_selectedShopName == null) {
       return;
     }
-    
+
     if (_currentProduct == null || _currentQuantityController.text.isEmpty) {
       return;
     }
-    
+
     final quantity = int.tryParse(_currentQuantityController.text) ?? 0;
     if (quantity <= 0) {
       return;
     }
-    
+
     // Ижил бараа байвал тоог нэмэх
     final existingIndex = _selectedItems.indexWhere(
       (item) => item.productId == _currentProduct!.id,
     );
-    
+
     if (existingIndex >= 0) {
       // Ижил бараа байвал тоог нэмэх
       final existingItem = _selectedItems[existingIndex];
@@ -114,30 +123,82 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         quantity: quantity,
       ));
     }
-    
+
     setState(() {
       _currentProductId = null;
       _currentProduct = null;
       _currentQuantityController.clear();
     });
   }
-  
+
+  // Add all selected products with default quantity of 1
+  void _addAllSelectedProductsToCart() {
+    if (_selectedShopName == null || _selectedProductIds.isEmpty) {
+      return;
+    }
+
+    final productProvider =
+        Provider.of<ProductProvider>(context, listen: false);
+    int addedCount = 0;
+
+    for (final productId in _selectedProductIds) {
+      final product = productProvider.getProductById(productId);
+      if (product == null) continue;
+
+      // Always add 1 quantity
+      final quantity = 1;
+
+      // Check if product already in cart
+      final existingIndex = _selectedItems.indexWhere(
+        (item) => item.productId == productId,
+      );
+
+      if (existingIndex >= 0) {
+        // Add to existing quantity
+        final existingItem = _selectedItems[existingIndex];
+        _selectedItems[existingIndex] = SalesItem(
+          productId: existingItem.productId,
+          productName: existingItem.productName,
+          price: existingItem.price,
+          quantity: existingItem.quantity + quantity,
+        );
+      } else {
+        // Add new item
+        _selectedItems.add(SalesItem(
+          productId: product.id,
+          productName: product.name,
+          price: product.price,
+          quantity: quantity,
+        ));
+      }
+      addedCount++;
+    }
+
+    setState(() {
+      _selectedProductIds.clear();
+      _productQuantities.clear();
+      _showProductList = false; // Hide product list after adding
+      _productSearchController.clear(); // Clear search
+    });
+  }
+
   void _removeProductFromCart(int index) {
     setState(() {
       _selectedItems.removeAt(index);
     });
   }
-  
-  
+
   void _checkShopCreditStatus(String shopName) {
     final salesProvider = Provider.of<SalesProvider>(context, listen: false);
     final shopProvider = Provider.of<ShopProvider>(context, listen: false);
-    
+
     // Зээлээр авсан төлбөр хийгээгүй эсэхийг шалгах
-    final hasUnpaidCredit = shopProvider.hasUnpaidCredit(shopName, salesProvider.sales);
-    
+    final hasUnpaidCredit =
+        shopProvider.hasUnpaidCredit(shopName, salesProvider.sales);
+
     if (hasUnpaidCredit) {
-      final unpaidAmount = shopProvider.getUnpaidCreditAmount(shopName, salesProvider.sales);
+      final unpaidAmount =
+          shopProvider.getUnpaidCreditAmount(shopName, salesProvider.sales);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           showDialog(
@@ -270,7 +331,8 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
               final price = double.tryParse(priceController.text.trim());
               if (name.isEmpty || price == null || price <= 0) return;
 
-              final productProvider = Provider.of<ProductProvider>(context, listen: false);
+              final productProvider =
+                  Provider.of<ProductProvider>(context, listen: false);
               final id = DateTime.now().millisecondsSinceEpoch.toString();
               final product = Product(id: id, name: name, price: price);
               productProvider.addProduct(product);
@@ -292,7 +354,8 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     });
   }
 
-  Widget _buildPaymentOption(String title, IconData icon, Color color, VoidCallback onTap) {
+  Widget _buildPaymentOption(
+      String title, IconData icon, Color color, VoidCallback onTap) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -339,18 +402,30 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     try {
       // Баримт хэвлэх
       await _printReceipt(paymentMethod);
-      
+
       // ebarimt руу мэдээлэл илгээх
       await _sendToEbarimt(paymentMethod);
-      
+
       // Sales бүртгэх (paymentMethod-тэй)
       await _submitSaleWithPaymentMethod(paymentMethod);
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('$paymentMethod төлбөрөөр худалдан авалт амжилттай!'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('✅ $paymentMethod төлбөрөөр худалдан авалт амжилттай!'),
+                const SizedBox(height: 4),
+                const Text(
+                  '🌐 Захиалга Weve сайт дээр харагдаж байна',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
             backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
           ),
         );
         context.go('/sales-dashboard');
@@ -372,21 +447,22 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       }
     }
   }
-  
+
   Future<void> _submitSaleWithPaymentMethod(String paymentMethod) async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     if (_selectedShopName == null) {
       return;
     }
-    
+
     if (_selectedItems.isEmpty) {
       return;
     }
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final salesProvider = Provider.of<SalesProvider>(context, listen: false);
-    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+    final locationProvider =
+        Provider.of<LocationProvider>(context, listen: false);
 
     // Одоогийн GPS байршлыг авах
     double? latitude;
@@ -409,7 +485,9 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         salespersonName: authProvider.user?.name ?? '',
         amount: item.total,
         saleDate: DateTime.now(),
-        notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+        notes: _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim(),
         paymentMethod: paymentMethod,
         latitude: latitude,
         longitude: longitude,
@@ -420,27 +498,31 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       await salesProvider.addSale(sale);
     }
 
+    // Push order to Weve site (mock for now)
+    await _pushOrderToWeve(paymentMethod);
+
     // Read-only mode: do NOT send sales/orders to Warehouse web backend.
   }
 
   Future<void> _sendToEbarimt(String paymentMethod) async {
     // ebarimt.mn API руу мэдээлэл илгээх
     // Одоогоор mock функц - бодит API-д солих хэрэгтэй
-    
+
     final locationName = _selectedShopName ?? 'Дэлгүүр';
-    
+
     // Mock API call
     await Future.delayed(const Duration(seconds: 1));
-    
+
     print('Ebarimt руу илгээж байна:');
     print('Байршил: $locationName');
     print('Төлбөрийн төрөл: $paymentMethod');
     print('Барааны тоо: ${_selectedItems.length}');
     for (var item in _selectedItems) {
-      print('  - ${item.productName}: ${item.quantity} x ${item.price.toStringAsFixed(0)} ₮ = ${item.total.toStringAsFixed(0)} ₮');
+      print(
+          '  - ${item.productName}: ${item.quantity} x ${item.price.toStringAsFixed(0)} ₮ = ${item.total.toStringAsFixed(0)} ₮');
     }
     print('Нийт үнэ: ${_totalAmount.toStringAsFixed(0)} ₮');
-    
+
     // Бодит API call жишээ:
     // final response = await http.post(
     //   Uri.parse('https://api.ebarimt.mn/receipt'),
@@ -454,6 +536,91 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     // );
   }
 
+  Future<void> _pushOrderToWeve(String paymentMethod) async {
+    try {
+      final warehouseProvider =
+          Provider.of<WarehouseProvider>(context, listen: false);
+      final shopProvider = Provider.of<ShopProvider>(context, listen: false);
+
+      if (!warehouseProvider.connected) {
+        debugPrint('⚠️  Warehouse backend-тэй холбогдоогүй байна');
+        return;
+      }
+
+      // Find selected shop to get its ID
+      final selectedShop = shopProvider.shops.firstWhere(
+        (shop) => shop.name == _selectedShopName,
+        orElse: () => shopProvider.shops.first,
+      );
+
+      // Parse customerId (backend expects int)
+      final customerId = int.tryParse(selectedShop.id);
+      if (customerId == null) {
+        debugPrint('⚠️  Дэлгүүрийн ID буруу байна: ${selectedShop.id}');
+        return;
+      }
+
+      // Prepare order items (backend expects: [{ productId: int, quantity: int }])
+      final items = _selectedItems.map((item) {
+        final productId = int.tryParse(item.productId);
+        if (productId == null) {
+          throw Exception('Барааны ID буруу байна: ${item.productId}');
+        }
+        return {
+          'productId': productId,
+          'quantity': item.quantity,
+        };
+      }).toList();
+
+      // Map payment method to backend format
+      final backendPaymentMethod = _mapPaymentMethod(paymentMethod);
+
+      debugPrint('📤 Warehouse backend руу захиалга илгээж байна...');
+      debugPrint('   • Дэлгүүр ID: $customerId');
+      debugPrint('   • Барааны тоо: ${items.length}');
+      debugPrint('   • Төлбөрийн төрөл: $backendPaymentMethod');
+
+      // Create order via warehouse backend API
+      final result = await warehouseProvider.createOrder(
+        customerId: customerId,
+        items: items,
+        orderType: 'Store', // or 'Market' depending on your needs
+        paymentMethod: backendPaymentMethod,
+      );
+
+      debugPrint('✅ Захиалга амжилттай илгээгдлээ!');
+      debugPrint('   • Order ID: ${result['order']?['id']}');
+      debugPrint('   • Order Number: ${result['order']?['orderNumber']}');
+      debugPrint('🌐 Захиалга web dashboard дээр харагдаж байна!');
+    } catch (e) {
+      debugPrint('❌ Захиалга илгээхэд алдаа гарлаа: $e');
+      // Don't show error to user - this is secondary functionality
+    }
+  }
+
+  /// Map mobile app payment method to backend format
+  String _mapPaymentMethod(String mobileMethod) {
+    switch (mobileMethod.toLowerCase()) {
+      case 'cash':
+      case 'бэлэн':
+        return 'Cash';
+      case 'credit':
+      case 'зээл':
+        return 'Credit';
+      case 'bank':
+      case 'банк':
+        return 'BankTransfer';
+      case 'sales':
+      case 'борлуулалт':
+        return 'Sales';
+      case 'padan':
+      case 'падан':
+        return 'Padan';
+      default:
+        return 'Cash';
+    }
+  }
+
   Future<Uint8List> _generateQrCodeImage(String data) async {
     final painter = QrPainter(
       data: data,
@@ -462,16 +629,16 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       color: const Color(0xFF000000),
       emptyColor: const Color(0xFFFFFFFF),
     );
-    
+
     final picRecorder = ui.PictureRecorder();
     final canvas = Canvas(picRecorder);
     const size = 200.0;
     painter.paint(canvas, const Size(size, size));
-    
+
     final picture = picRecorder.endRecording();
     final image = await picture.toImage(size.toInt(), size.toInt());
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    
+
     return byteData!.buffer.asUint8List();
   }
 
@@ -485,7 +652,6 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       );
       return;
     }
-    
 
     setState(() {
       _isLoading = true;
@@ -494,7 +660,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final totalAmount = _totalAmount;
     final now = DateTime.now();
-    
+
     // QR code мэдээлэл үүсгэх (JSON формат)
     final qrData = {
       'items': _selectedItems.map((item) => item.toJson()).toList(),
@@ -505,13 +671,13 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       'salesperson': authProvider.user?.name ?? '',
     };
     final qrDataString = jsonEncode(qrData);
-    
+
     // QR code image үүсгэх
     final qrImageBytes = await _generateQrCodeImage(qrDataString);
     final qrImage = pw.MemoryImage(qrImageBytes);
-    
+
     final pdf = pw.Document();
-    
+
     pdf.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.roll80,
@@ -536,13 +702,16 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
               pw.SizedBox(height: 5),
               // Олон барааны мэдээлэл
               for (var item in _selectedItems) ...[
-                pw.Text('${item.productName}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                pw.Text('${item.productName}',
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
                 pw.SizedBox(height: 3),
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text('${item.quantity} x ${item.price.toStringAsFixed(0)} ₮'),
-                    pw.Text('${item.total.toStringAsFixed(0)} ₮', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                    pw.Text(
+                        '${item.quantity} x ${item.price.toStringAsFixed(0)} ₮'),
+                    pw.Text('${item.total.toStringAsFixed(0)} ₮',
+                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
                   ],
                 ),
                 pw.SizedBox(height: 8),
@@ -642,7 +811,8 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         ],
       ),
       drawer: const HamburgerMenu(),
-      bottomNavigationBar: const BottomNavigationWidget(currentRoute: '/sales-entry'),
+      bottomNavigationBar:
+          const BottomNavigationWidget(currentRoute: '/sales-entry'),
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -719,393 +889,983 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                    // Дэлгүүр сонгох
-                    Consumer<ShopProvider>(
-                      builder: (context, shopProvider, child) {
-                        final dropdown = DropdownButtonFormField<String>(
-                          value: _selectedShopName,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Дэлгүүр',
-                            hintText: 'Сонгоно уу',
-                            prefixIcon: Icon(Icons.location_on_outlined),
-                          ),
-                          items: shopProvider.shops.map((shop) {
-                            return DropdownMenuItem(
-                              value: shop.name,
-                              child: Text(shop.name, overflow: TextOverflow.ellipsis),
-                            );
-                          }).toList(),
-                          onChanged: shopProvider.shops.isEmpty
-                              ? null
-                              : (value) {
-                                  setState(() {
-                                    _selectedShopName = value;
-                                  });
-                                  if (value != null) {
-                                    _checkShopCreditStatus(value);
-                                  }
-                                },
-                          validator: (value) {
-                            if (shopProvider.shops.isEmpty) {
-                              return 'Дэлгүүр татагдаагүй байна (Settings → Warehouse Web Sync → Sync)';
-                            }
-                            if (value == null) return 'Дэлгүүр сонгоно уу';
-                            return null;
-                          },
-                        );
+                      // Дэлгүүр сонгох - Autocomplete with search
+                      Consumer<ShopProvider>(
+                        builder: (context, shopProvider, child) {
+                          return Autocomplete<String>(
+                            initialValue: _selectedShopName != null
+                                ? TextEditingValue(text: _selectedShopName!)
+                                : null,
+                            optionsBuilder:
+                                (TextEditingValue textEditingValue) {
+                              if (textEditingValue.text.isEmpty) {
+                                return shopProvider.shops
+                                    .map((shop) => shop.name);
+                              }
+                              final searchQuery =
+                                  textEditingValue.text.toLowerCase();
+                              return shopProvider.shops
+                                  .where((shop) =>
+                                      shop.name
+                                          .toLowerCase()
+                                          .contains(searchQuery) ||
+                                      (shop.address ?? '')
+                                          .toLowerCase()
+                                          .contains(searchQuery) ||
+                                      (shop.phone ?? '')
+                                          .toLowerCase()
+                                          .contains(searchQuery))
+                                  .map((shop) => shop.name);
+                            },
+                            onSelected: (String selection) {
+                              setState(() {
+                                _selectedShopName = selection;
+                              });
+                              _checkShopCreditStatus(selection);
+                            },
+                            fieldViewBuilder: (context, controller, focusNode,
+                                onFieldSubmitted) {
+                              // Sync controller with selected shop
+                              if (_selectedShopName != null &&
+                                  controller.text != _selectedShopName) {
+                                controller.text = _selectedShopName!;
+                              }
 
-                        return LayoutBuilder(
-                          builder: (context, constraints) {
-                            final narrow = constraints.maxWidth < 420;
-                            if (narrow) {
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  dropdown,
-                                ],
-                              );
-                            }
-
-                            return Row(children: [Expanded(child: dropdown)]);
-                          },
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Бараа нэмэх хэсэг
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            children: [
-                              const Text(
-                                'Бараа нэмэх',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              if (_selectedShopName == null) ...[
-                                const SizedBox(width: 8),
-                                const Text(
-                                  '(Дэлгүүр сонгоно уу)',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.orange,
-                                    fontStyle: FontStyle.italic,
+                              return TextFormField(
+                                controller: controller,
+                                focusNode: focusNode,
+                                decoration: InputDecoration(
+                                  labelText: '🏪 Дэлгүүр хайж сонгох',
+                                  hintText: shopProvider.shops.isEmpty
+                                      ? 'Дэлгүүр татагдаагүй байна'
+                                      : 'Нэр, хаяг, утас бичнэ үү...',
+                                  prefixIcon: const Icon(Icons.store,
+                                      color: Color(0xFFEF4444)),
+                                  suffixIcon: controller.text.isNotEmpty
+                                      ? IconButton(
+                                          icon: const Icon(Icons.clear),
+                                          onPressed: () {
+                                            controller.clear();
+                                            setState(() {
+                                              _selectedShopName = null;
+                                            });
+                                          },
+                                        )
+                                      : const Icon(Icons.arrow_drop_down),
+                                  filled: true,
+                                  fillColor: const Color(0xFFFEF2F2),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                        color: Color(0xFFEF4444), width: 2),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                        color: Color(0xFFEF4444), width: 2),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                        color: Color(0xFFDC2626), width: 3),
                                   ),
                                 ),
-                              ],
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          // Бараа сонгох (+ Шинэ бараа)
-                          Consumer<ProductProvider>(
-                            builder: (context, productProvider, child) {
-                              final dropdown = DropdownButtonFormField<String>(
-                                value: _currentProductId,
-                                isExpanded: true,
-                                decoration: InputDecoration(
-                                  labelText: 'Бараа',
-                                  hintText: _selectedShopName == null
-                                      ? 'Эхлээд дэлгүүр сонгоно уу'
-                                      : (productProvider.products.isEmpty
-                                          ? 'Бараа алга (Шинэ дарж нэмнэ үү)'
-                                          : 'Бараа сонгоно уу'),
-                                  prefixIcon: const Icon(Icons.inventory_2_outlined),
-                                ),
-                                items: productProvider.products.map((product) {
-                                  return DropdownMenuItem(
-                                    value: product.id,
-                                    child: Text(product.name, overflow: TextOverflow.ellipsis),
-                                  );
-                                }).toList(),
-                                onChanged: _selectedShopName == null || productProvider.products.isEmpty
-                                    ? null
-                                    : (value) {
-                                        setState(() {
-                                          _currentProductId = value;
-                                          _currentProduct = productProvider.getProductById(value!);
-                                        });
-                                      },
-                              );
-
-                              final addBtn = ElevatedButton.icon(
-                                onPressed: _selectedShopName == null ? null : _showAddProductDialog,
-                                icon: const Icon(Icons.add_rounded),
-                                label: const Text('Шинэ'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF10B981),
-                                  foregroundColor: Colors.white,
-                                ),
-                              );
-
-                              return LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final narrow = constraints.maxWidth < 420;
-                                  if (narrow) {
-                                    return Column(
-                                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                                      children: [
-                                        dropdown,
-                                        const SizedBox(height: 8),
-                                        SizedBox(width: double.infinity, child: addBtn),
-                                      ],
-                                    );
+                                style: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.w600),
+                                validator: (value) {
+                                  if (shopProvider.shops.isEmpty) {
+                                    return 'Дэлгүүр татагдаагүй байна (Settings → Sync)';
                                   }
-
-                                  return Row(
-                                    children: [
-                                      Expanded(child: dropdown),
-                                      const SizedBox(width: 8),
-                                      addBtn,
-                                    ],
-                                  );
+                                  if (value == null || value.isEmpty) {
+                                    return 'Дэлгүүр сонгоно уу';
+                                  }
+                                  // Check if selected shop exists
+                                  final exists = shopProvider.shops
+                                      .any((shop) => shop.name == value);
+                                  if (!exists) {
+                                    return 'Жагсаалтаас сонгоно уу';
+                                  }
+                                  return null;
                                 },
                               );
                             },
-                          ),
-                          const SizedBox(height: 16),
-                          // Барааны үнэ
-                          if (_currentProduct != null)
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.grey.shade200),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text(
-                                        'Үнэ:',
-                                        style: TextStyle(fontSize: 14),
-                                      ),
-                                      Text(
-                                        '${_currentProduct!.price.toStringAsFixed(0)} ₮',
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFF10B981),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  if ((_currentProduct!.barcode ?? '').isNotEmpty)
-                                    Text(
-                                      'Barcode: ${_currentProduct!.barcode}',
-                                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                            optionsViewBuilder: (context, onSelected, options) {
+                              return Align(
+                                alignment: Alignment.topLeft,
+                                child: Material(
+                                  elevation: 8,
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    constraints: const BoxConstraints(
+                                        maxHeight: 200), // Reduced from 300
+                                    width:
+                                        MediaQuery.of(context).size.width - 32,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                          color: const Color(0xFFEF4444),
+                                          width: 2),
                                     ),
-                                  if (_currentProduct!.stockQuantity != null)
-                                    Text(
-                                      'Үлдэгдэл: ${_currentProduct!.stockQuantity} ширхэг',
-                                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                                    ),
-                                  if (_currentProduct!.unitsPerBox != null)
-                                    Text(
-                                      'Хайрцаг дахь тоо: ${_currentProduct!.unitsPerBox}',
-                                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          if (_currentProduct != null) const SizedBox(height: 16),
-                          // Тоо оруулах
-                          TextFormField(
-                            controller: _currentQuantityController,
-                            enabled: _selectedShopName != null,
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              labelText: 'Тоо / Ширхэг',
-                              hintText: _selectedShopName == null
-                                  ? 'Эхлээд дэлгүүр сонгоно уу'
-                                  : 'Тоо оруулна уу',
-                              prefixIcon: const Icon(Icons.numbers),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          // Нэмэх товч
-                          ElevatedButton.icon(
-                            onPressed: (_selectedShopName == null || 
-                                        _currentProduct == null || 
-                                        _currentQuantityController.text.isEmpty)
-                                ? null
-                                : () {
-                                    _addProductToCart();
-                                  },
-                            icon: const Icon(Icons.add_shopping_cart),
-                            label: const Text('Сагсанд нэмэх'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF3B82F6),
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
+                                    child: ListView.builder(
+                                      padding: EdgeInsets.zero,
+                                      shrinkWrap: true,
+                                      itemCount: options.length,
+                                      itemBuilder:
+                                          (BuildContext context, int index) {
+                                        final option = options.elementAt(index);
+                                        final shop =
+                                            shopProvider.shops.firstWhere(
+                                          (s) => s.name == option,
+                                          orElse: () =>
+                                              shopProvider.shops.first,
+                                        );
 
-                    // Сонгосон бараанууд
-                    if (_selectedItems.isNotEmpty) ...[
+                                        return InkWell(
+                                          onTap: () => onSelected(option),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 10,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              border: Border(
+                                                bottom: BorderSide(
+                                                  color: Colors.grey.shade200,
+                                                  width: 1,
+                                                ),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.store,
+                                                  color: Color(0xFFEF4444),
+                                                  size: 18,
+                                                ),
+                                                const SizedBox(width: 10),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      Text(
+                                                        option,
+                                                        style: const TextStyle(
+                                                          fontSize: 14,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                      if (shop.address !=
+                                                              null &&
+                                                          shop.address!
+                                                              .isNotEmpty)
+                                                        Text(
+                                                          shop.address!,
+                                                          style: TextStyle(
+                                                            fontSize: 11,
+                                                            color: Colors
+                                                                .grey[600],
+                                                          ),
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Бараа нэмэх хэсэг
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: const Color(0xFFF8FAFC),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFF10B981)),
+                          border: Border.all(color: Colors.grey.shade300),
                         ),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const Row(
+                            Row(
                               children: [
-                                Icon(Icons.shopping_cart, color: Color(0xFF10B981)),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Сонгосон бараанууд',
+                                const Text(
+                                  'Бараа нэмэх',
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
-                                    color: Color(0xFF10B981),
                                   ),
                                 ),
+                                if (_selectedShopName == null) ...[
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    '(Дэлгүүр сонгоно уу)',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.orange,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
-                            const SizedBox(height: 12),
-                            ...List.generate(_selectedItems.length, (index) {
-                              final item = _selectedItems[index];
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF8FAFC),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.grey.shade200),
-                                ),
-                                child: Row(
+                            const SizedBox(height: 16),
+                            // Бараа хайх + Бараа сонгох (+ Шинэ бараа)
+                            Consumer<ProductProvider>(
+                              builder: (context, productProvider, child) {
+                                // Filter products based on search
+                                final searchText =
+                                    _productSearchController.text.toLowerCase();
+                                final filteredProducts = searchText.isEmpty
+                                    ? productProvider.products
+                                    : productProvider.products.where((p) {
+                                        return p.name
+                                                .toLowerCase()
+                                                .contains(searchText) ||
+                                            (p.barcode ?? '')
+                                                .toLowerCase()
+                                                .contains(searchText) ||
+                                            (p.productCode ?? '')
+                                                .toLowerCase()
+                                                .contains(searchText);
+                                      }).toList();
+
+                                // Search bar
+                                final searchBar = Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.shade50,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                        color: Colors.blue.shade200, width: 2),
+                                  ),
+                                  child: TextField(
+                                    controller: _productSearchController,
+                                    enabled: _selectedShopName != null &&
+                                        productProvider.products.isNotEmpty,
+                                    onTap: () {
+                                      // Show product list when tapped
+                                      setState(() {
+                                        _showProductList = true;
+                                      });
+                                    },
+                                    decoration: InputDecoration(
+                                      labelText: '🔍 Бараа хайх',
+                                      hintText: _selectedShopName == null
+                                          ? 'Эхлээд дэлгүүр сонгоно уу'
+                                          : (productProvider.products.isEmpty
+                                              ? 'Бараа алга'
+                                              : 'Дарж бараа сонгох...'),
+                                      prefixIcon:
+                                          const Icon(Icons.search, size: 28),
+                                      suffixIcon: _productSearchController
+                                              .text.isNotEmpty
+                                          ? IconButton(
+                                              icon: const Icon(Icons.clear),
+                                              onPressed: () {
+                                                setState(() {
+                                                  _productSearchController
+                                                      .clear();
+                                                });
+                                              },
+                                            )
+                                          : const Icon(Icons.arrow_drop_down),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                    ),
+                                    style: const TextStyle(fontSize: 16),
+                                    onChanged: (value) {
+                                      setState(() {}); // Rebuild to filter
+                                    },
+                                  ),
+                                );
+
+                                // Dropdown
+                                final dropdown =
+                                    DropdownButtonFormField<String>(
+                                  value: _currentProductId,
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    labelText: 'Бараа',
+                                    hintText: _selectedShopName == null
+                                        ? 'Эхлээд дэлгүүр сонгоно уу'
+                                        : (productProvider.products.isEmpty
+                                            ? 'Бараа алга (Шинэ дарж нэмнэ үү)'
+                                            : filteredProducts.isEmpty
+                                                ? 'Хайлт олдсонгүй'
+                                                : 'Бараа сонгоно уу'),
+                                    prefixIcon:
+                                        const Icon(Icons.inventory_2_outlined),
+                                  ),
+                                  items: filteredProducts.map((product) {
+                                    return DropdownMenuItem(
+                                      value: product.id,
+                                      child: Text(product.name,
+                                          overflow: TextOverflow.ellipsis),
+                                    );
+                                  }).toList(),
+                                  onChanged: _selectedShopName == null ||
+                                          filteredProducts.isEmpty
+                                      ? null
+                                      : (value) {
+                                          setState(() {
+                                            _currentProductId = value;
+                                            _currentProduct = productProvider
+                                                .getProductById(value!);
+                                          });
+                                        },
+                                );
+
+                                final addBtn = ElevatedButton.icon(
+                                  onPressed: _selectedShopName == null
+                                      ? null
+                                      : _showAddProductDialog,
+                                  icon: const Icon(Icons.add_rounded),
+                                  label: const Text('Шинэ'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF10B981),
+                                    foregroundColor: Colors.white,
+                                  ),
+                                );
+
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
                                   children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            item.productName,
+                                    searchBar,
+                                    const SizedBox(height: 12),
+
+                                    // Checkbox list with quantities - Show only when tapped
+                                    if (_showProductList &&
+                                        filteredProducts.isNotEmpty &&
+                                        _selectedShopName != null)
+                                      Container(
+                                        height: 350,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          border: Border.all(
+                                              color: const Color(0xFF10B981),
+                                              width: 2),
+                                        ),
+                                        child: Column(
+                                          children: [
+                                            // Header
+                                            Container(
+                                              padding: const EdgeInsets.all(12),
+                                              decoration: const BoxDecoration(
+                                                color: Color(0xFF10B981),
+                                                borderRadius: BorderRadius.only(
+                                                  topLeft: Radius.circular(10),
+                                                  topRight: Radius.circular(10),
+                                                ),
+                                              ),
+                                              child: Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
+                                                children: [
+                                                  Row(
+                                                    children: [
+                                                      const Icon(
+                                                          Icons.check_circle,
+                                                          color: Colors.white,
+                                                          size: 20),
+                                                      const SizedBox(width: 8),
+                                                      Text(
+                                                        '✓ ${_selectedProductIds.length} бараа сонгосон',
+                                                        style: const TextStyle(
+                                                          color: Colors.white,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          fontSize: 16,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  if (_selectedProductIds
+                                                      .isNotEmpty)
+                                                    TextButton(
+                                                      onPressed: () {
+                                                        setState(() {
+                                                          _selectedProductIds
+                                                              .clear();
+                                                          _productQuantities
+                                                              .clear();
+                                                        });
+                                                      },
+                                                      style:
+                                                          TextButton.styleFrom(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                                horizontal: 8,
+                                                                vertical: 4),
+                                                      ),
+                                                      child: const Text(
+                                                        'Цэвэрлэх',
+                                                        style: TextStyle(
+                                                            color: Colors.white,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .bold),
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
+                                            // Product list
+                                            Expanded(
+                                              child: ListView.builder(
+                                                itemCount:
+                                                    filteredProducts.length,
+                                                itemBuilder: (context, index) {
+                                                  final product =
+                                                      filteredProducts[index];
+                                                  final isSelected =
+                                                      _selectedProductIds
+                                                          .contains(product.id);
+                                                  final quantity =
+                                                      _productQuantities[
+                                                              product.id] ??
+                                                          1;
+
+                                                  return Container(
+                                                    margin: const EdgeInsets
+                                                        .symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                      color: isSelected
+                                                          ? const Color(
+                                                              0xFFDCFCE7)
+                                                          : Colors.white,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              8),
+                                                      border: Border.all(
+                                                        color: isSelected
+                                                            ? const Color(
+                                                                0xFF10B981)
+                                                            : Colors
+                                                                .grey.shade300,
+                                                        width:
+                                                            isSelected ? 2 : 1,
+                                                      ),
+                                                    ),
+                                                    child: ListTile(
+                                                      leading: Checkbox(
+                                                        value: isSelected,
+                                                        onChanged:
+                                                            (bool? checked) {
+                                                          setState(() {
+                                                            if (checked ==
+                                                                true) {
+                                                              _selectedProductIds
+                                                                  .add(product
+                                                                      .id);
+                                                              _productQuantities[
+                                                                  product
+                                                                      .id] = 1;
+                                                            } else {
+                                                              _selectedProductIds
+                                                                  .remove(
+                                                                      product
+                                                                          .id);
+                                                              _productQuantities
+                                                                  .remove(
+                                                                      product
+                                                                          .id);
+                                                            }
+                                                          });
+                                                        },
+                                                        activeColor:
+                                                            const Color(
+                                                                0xFF10B981),
+                                                      ),
+                                                      title: Text(
+                                                        product.name,
+                                                        style: TextStyle(
+                                                          fontWeight: isSelected
+                                                              ? FontWeight.bold
+                                                              : FontWeight
+                                                                  .normal,
+                                                          fontSize: 15,
+                                                        ),
+                                                      ),
+                                                      subtitle: Text(
+                                                        '${product.price.toStringAsFixed(0)} ₮',
+                                                        style: const TextStyle(
+                                                          color:
+                                                              Color(0xFF059669),
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+
+                                    // Add selected button
+                                    if (_selectedProductIds.isNotEmpty) ...[
+                                      const SizedBox(height: 16),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        height: 56,
+                                        child: ElevatedButton.icon(
+                                          onPressed: () {
+                                            final int count =
+                                                _selectedProductIds.length;
+                                            _addAllSelectedProductsToCart();
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                    '✅ $count бараа сагсанд нэмэгдлээ!'),
+                                                backgroundColor:
+                                                    const Color(0xFF10B981),
+                                                duration:
+                                                    const Duration(seconds: 2),
+                                              ),
+                                            );
+                                          },
+                                          icon: const Icon(
+                                              Icons.add_shopping_cart,
+                                              size: 28),
+                                          label: Text(
+                                            '${_selectedProductIds.length} бараа сагсанд нэмэх ➕',
                                             style: const TextStyle(
-                                              fontSize: 14,
+                                              fontSize: 18,
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            '${item.quantity} x ${item.price.toStringAsFixed(0)} ₮ = ${item.total.toStringAsFixed(0)} ₮',
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey,
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                                const Color(0xFF10B981),
+                                            foregroundColor: Colors.white,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
                                             ),
+                                            elevation: 4,
                                           ),
-                                        ],
+                                        ),
                                       ),
+                                    ],
+
+                                    const SizedBox(height: 12),
+                                    SizedBox(
+                                        width: double.infinity, child: addBtn),
+                                  ],
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            // Барааны үнэ
+                            if (_currentProduct != null)
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border:
+                                      Border.all(color: Colors.grey.shade200),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        const Text(
+                                          'Үнэ:',
+                                          style: TextStyle(fontSize: 14),
+                                        ),
+                                        Text(
+                                          '${_currentProduct!.price.toStringAsFixed(0)} ₮',
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF10B981),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                      onPressed: () => _removeProductFromCart(index),
-                                    ),
+                                    const SizedBox(height: 8),
+                                    if ((_currentProduct!.barcode ?? '')
+                                        .isNotEmpty)
+                                      Text(
+                                        'Barcode: ${_currentProduct!.barcode}',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[700]),
+                                      ),
+                                    if (_currentProduct!.stockQuantity != null)
+                                      Text(
+                                        'Үлдэгдэл: ${_currentProduct!.stockQuantity} ширхэг',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[700]),
+                                      ),
+                                    if (_currentProduct!.unitsPerBox != null)
+                                      Text(
+                                        'Хайрцаг дахь тоо: ${_currentProduct!.unitsPerBox}',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[700]),
+                                      ),
                                   ],
                                 ),
-                              );
-                            }),
-                            const Divider(),
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  'Нийт үнэ:',
+                              ),
+                            if (_currentProduct != null)
+                              const SizedBox(height: 16),
+                            // Тоо оруулах
+                            TextFormField(
+                              controller: _currentQuantityController,
+                              enabled: _selectedShopName != null,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                labelText: 'Тоо / Ширхэг',
+                                hintText: _selectedShopName == null
+                                    ? 'Эхлээд дэлгүүр сонгоно уу'
+                                    : 'Тоо оруулна уу',
+                                prefixIcon: const Icon(Icons.numbers),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            // Нэмэх товч - ТОМ, ТОД
+                            SizedBox(
+                              width: double.infinity,
+                              height: 50,
+                              child: ElevatedButton.icon(
+                                onPressed: (_selectedShopName == null ||
+                                        _currentProduct == null ||
+                                        _currentQuantityController.text.isEmpty)
+                                    ? null
+                                    : () {
+                                        _addProductToCart();
+                                      },
+                                icon: const Icon(Icons.add_circle, size: 24),
+                                label: const Text(
+                                  'Сагсанд нэмэх ➕',
                                   style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                Text(
-                                  '${_totalAmount.toStringAsFixed(0)} ₮',
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF10B981),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF10B981),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
+                                  elevation: 3,
                                 ),
-                              ],
+                              ),
                             ),
+                            const SizedBox(height: 16),
+                            // Hint text
+                            if (_selectedItems.isEmpty)
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF0F9FF),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                      color: const Color(0xFF3B82F6)),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.info_outline,
+                                        color: Color(0xFF3B82F6), size: 20),
+                                    SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Олон бараа нэмж болно! Бараа бүрийг "Сагсанд нэмэх" дарж нэмнэ үү.',
+                                        style: TextStyle(
+                                          color: Color(0xFF1E40AF),
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 20),
-                    ],
 
-                    // Notes
-                    TextFormField(
-                      controller: _notesController,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'Notes (Optional)',
-                        hintText: 'Additional notes about the sale',
-                        prefixIcon: Icon(Icons.note_outlined),
-                        alignLabelWithHint: true,
-                      ),
-                    ),
-                    const SizedBox(height: 32),
+                      // Сонгосон бараанууд
+                      if (_selectedItems.isNotEmpty) ...[
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFF10B981)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.shopping_cart,
+                                      color: Color(0xFF10B981)),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Сонгосон бараанууд',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF10B981),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              ...List.generate(_selectedItems.length, (index) {
+                                final item = _selectedItems[index];
+                                final quantityController =
+                                    TextEditingController(
+                                  text: item.quantity.toString(),
+                                );
 
-                    // Purchase Button
-                    SizedBox(
-                      height: 56,
-                      child: ElevatedButton.icon(
-                        onPressed: (_isLoading || 
-                            _selectedItems.isEmpty || 
-                            _selectedShopName == null) 
-                            ? null 
-                            : _showPaymentMethodDialog,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF10B981),
-                          foregroundColor: Colors.white,
-                          elevation: 3,
-                          shadowColor: const Color(0xFF10B981).withOpacity(0.4),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border:
+                                        Border.all(color: Colors.grey.shade200),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 3,
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              item.productName,
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '${item.price.toStringAsFixed(0)} ₮ x ${item.quantity} = ${item.total.toStringAsFixed(0)} ₮',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      // Quantity input field
+                                      Directionality(
+                                        textDirection: TextDirection.ltr,
+                                        child: SizedBox(
+                                          width: 80,
+                                          child: TextField(
+                                            controller: quantityController,
+                                            keyboardType: TextInputType.number,
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                            decoration: InputDecoration(
+                                              contentPadding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 8,
+                                                vertical: 8,
+                                              ),
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                borderSide: const BorderSide(
+                                                  color: Color(0xFF10B981),
+                                                  width: 2,
+                                                ),
+                                              ),
+                                              enabledBorder: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                borderSide: const BorderSide(
+                                                  color: Color(0xFF10B981),
+                                                  width: 2,
+                                                ),
+                                              ),
+                                              focusedBorder: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                borderSide: const BorderSide(
+                                                  color: Color(0xFF059669),
+                                                  width: 2,
+                                                ),
+                                              ),
+                                              filled: true,
+                                              fillColor: Colors.white,
+                                            ),
+                                            onTap: () {
+                                              // Select all text when tapped for easier editing
+                                              quantityController.selection =
+                                                  TextSelection(
+                                                baseOffset: 0,
+                                                extentOffset: quantityController
+                                                    .text.length,
+                                              );
+                                            },
+                                            onChanged: (value) {
+                                              if (value.isEmpty)
+                                                return; // Allow empty for editing
+                                              final newQuantity =
+                                                  int.tryParse(value);
+                                              if (newQuantity != null &&
+                                                  newQuantity > 0) {
+                                                setState(() {
+                                                  _selectedItems[index] =
+                                                      SalesItem(
+                                                    productId: item.productId,
+                                                    productName:
+                                                        item.productName,
+                                                    price: item.price,
+                                                    quantity: newQuantity,
+                                                  );
+                                                });
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline,
+                                            color: Colors.red),
+                                        onPressed: () {
+                                          quantityController.dispose();
+                                          _removeProductFromCart(index);
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                              const Divider(),
+                              const SizedBox(height: 8),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Нийт үнэ:',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${_totalAmount.toStringAsFixed(0)} ₮',
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF10B981),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
-                        icon: _isLoading
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.shopping_cart_rounded),
-                        label: Text(
-                          _isLoading ? 'Боловсруулж байна...' : 'Худалдан авах',
-                          style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+                        const SizedBox(height: 20),
+                      ],
+
+                      // Notes
+                      TextFormField(
+                        controller: _notesController,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'Notes (Optional)',
+                          hintText: 'Additional notes about the sale',
+                          prefixIcon: Icon(Icons.note_outlined),
+                          alignLabelWithHint: true,
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 32),
+
+                      // Purchase Button
+                      SizedBox(
+                        height: 56,
+                        child: ElevatedButton.icon(
+                          onPressed: (_isLoading ||
+                                  _selectedItems.isEmpty ||
+                                  _selectedShopName == null)
+                              ? null
+                              : _showPaymentMethodDialog,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF10B981),
+                            foregroundColor: Colors.white,
+                            elevation: 3,
+                            shadowColor:
+                                const Color(0xFF10B981).withOpacity(0.4),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          icon: _isLoading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.shopping_cart_rounded),
+                          label: Text(
+                            _isLoading
+                                ? 'Боловсруулж байна...'
+                                : 'Худалдан авах',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),

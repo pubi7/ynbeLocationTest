@@ -102,6 +102,7 @@ class _RetryInterceptor extends Interceptor {
 ///
 /// Endpoints used:
 /// - POST `auth/login`  -> { status: "success", data: { token: "..." } }
+/// - POST `auth/agent-login` -> { status: "success", data: { token: "...", agent: {...} } }
 /// - GET  `products`    -> { status: "success", data: { products: [], pagination: { totalPages } } }
 /// - GET  `customers`   -> { status: "success", data: { customers: [], pagination: { totalPages } } }
 class WarehouseWebBridge {
@@ -244,18 +245,183 @@ class WarehouseWebBridge {
   }
 
   Future<String> login({required String identifier, required String password}) async {
-    final body = await _postJson(
-      'auth/login',
-      data: {'identifier': identifier, 'password': password},
-    );
-    final data = _unwrapData(body);
-    final token = data['token']?.toString();
-    if (token == null || token.isEmpty) {
-      throw Exception(body['message'] ?? 'Token not returned from server');
+    // Strategy: 
+    // - If identifier ends with @warehouse.com, must exist in backend (normal login only)
+    // - Otherwise, try agent-login first (Weve site authentication), then fallback to normal login
+    
+    final isWarehouseEmail = identifier.toLowerCase().endsWith('@warehouse.com') || 
+                             identifier.toLowerCase().endsWith('@oasis.mn');
+    
+    if (isWarehouseEmail) {
+      // @warehouse.com or @oasis.mn emails must exist in backend
+      // Try normal warehouse login only (no agent-login fallback)
+      try {
+        final body = await _postJson(
+          'auth/login',
+          data: {'identifier': identifier, 'password': password},
+        );
+        final data = _unwrapData(body);
+        final token = data['token']?.toString();
+        if (token == null || token.isEmpty) {
+          throw Exception(body['message'] ?? 'Token not returned from server');
+        }
+        setToken(token);
+        await saveToken(token);
+        return token;
+      } catch (e) {
+        // If @warehouse.com email doesn't exist in backend, throw error (no fallback)
+        if (e is DioException) {
+          final statusCode = e.response?.statusCode;
+          if (statusCode == 429) {
+            final responseData = e.response?.data;
+            final errorMessage = responseData is Map 
+                ? responseData['message']?.toString() 
+                : responseData?.toString();
+            throw Exception(errorMessage ?? 'Too many login attempts, please try again later');
+          } else if (statusCode == 401 || statusCode == 403) {
+            throw Exception('Invalid credentials. User not found in backend.');
+          }
+        }
+        rethrow;
+      }
     }
-    setToken(token);
-    await saveToken(token);
-    return token;
+    
+    // For non-warehouse emails, try agent-login first (Weve site authentication)
+    try {
+      // First, try agent-login (Weve site authentication)
+      final agentBody = await _postJson(
+        'auth/agent-login',
+        data: {'username': identifier, 'password': password},
+      );
+      
+      // If agent-login succeeds, user is registered in Weve site
+      final agentData = _unwrapData(agentBody);
+      final agentToken = agentData['token']?.toString();
+      if (agentToken != null && agentToken.isNotEmpty) {
+        setToken(agentToken);
+        await saveToken(agentToken);
+        return agentToken;
+      }
+    } catch (e) {
+      // If agent-login fails with 401/403, user is not registered in Weve site
+      if (e is DioException) {
+        final statusCode = e.response?.statusCode;
+        final responseData = e.response?.data;
+        final errorMessage = responseData is Map 
+            ? responseData['message']?.toString() ?? ''
+            : responseData?.toString() ?? '';
+        
+        if (statusCode == 429) {
+          // Rate limiting - throw with message
+          throw Exception(errorMessage.isNotEmpty 
+              ? errorMessage 
+              : 'Too many login attempts, please try again later');
+        } else if (statusCode == 401 || statusCode == 403) {
+          // User is not registered in Weve site - throw specific error
+          if (errorMessage.toLowerCase().contains('not registered') ||
+              errorMessage.toLowerCase().contains('бүртгэлгүй') ||
+              errorMessage.toLowerCase().contains('user not found')) {
+            throw Exception('USER_NOT_REGISTERED');
+          } else {
+            throw Exception('USER_NOT_REGISTERED');
+          }
+        } else if (statusCode == 404) {
+          // Agent-login endpoint not available (old backend version) - fallback to normal login
+          debugPrint('Agent login endpoint not available (404), trying normal login');
+        } else {
+          // Other errors (network, 500, etc.) - rethrow
+          rethrow;
+        }
+      } else {
+        // Non-DioException - check if it's already USER_NOT_REGISTERED
+        if (e.toString().contains('USER_NOT_REGISTERED')) {
+          rethrow;
+        }
+        // Other exceptions - rethrow
+        rethrow;
+      }
+    }
+    
+    // Fallback to normal warehouse login (only if agent-login endpoint was 404)
+    try {
+      final body = await _postJson(
+        'auth/login',
+        data: {'identifier': identifier, 'password': password},
+      );
+      final data = _unwrapData(body);
+      final token = data['token']?.toString();
+      if (token == null || token.isEmpty) {
+        throw Exception(body['message'] ?? 'Token not returned from server');
+      }
+      setToken(token);
+      await saveToken(token);
+      return token;
+    } catch (e) {
+      // If normal login also fails, check if it's invalid credentials
+      if (e is DioException) {
+        final statusCode = e.response?.statusCode;
+        final responseData = e.response?.data;
+        final errorMessage = responseData is Map 
+            ? responseData['message']?.toString() 
+            : responseData?.toString();
+        
+        if (statusCode == 429) {
+          throw Exception(errorMessage ?? 'Too many login attempts, please try again later');
+        } else if (statusCode == 401 || statusCode == 403) {
+          throw Exception('Invalid credentials. Нэвтрэх нэр эсвэл нууц үг буруу байна.');
+        }
+      }
+      rethrow;
+    }
+  }
+
+  /// Get current user profile
+  Future<Map<String, dynamic>> getProfile() async {
+    final body = await _getJson('auth/profile');
+    return _unwrapData(body);
+  }
+
+  /// Fetch stores from Weve site for agent (uses agent's Weve token)
+  Future<List<Shop>> fetchAgentStores() async {
+    final shops = <Shop>[];
+    
+    try {
+      final body = await _getJson('weve/agent/stores');
+      final data = _unwrapData(body);
+      final stores = (data['stores'] as List?) ?? const [];
+      
+      final extracted = await compute(_extractShopMaps, stores);
+      for (final s in extracted) {
+        final name = (s['name'] ?? 'N/A').toString();
+        final district = (s['district'] ?? '').toString().trim();
+        final address = (s['address'] ?? '').toString().trim();
+        final detailedAddress = (s['detailedAddress'] ?? '').toString().trim();
+        final fullAddress = [district, address, detailedAddress].where((s) => s.trim().isNotEmpty).join(', ');
+
+        shops.add(
+          Shop(
+            id: (s['id'] ?? '').toString(),
+            name: name,
+            address: fullAddress.isEmpty ? 'N/A' : fullAddress,
+            latitude: (s['locationLatitude'] as double?) ?? 0.0,
+            longitude: (s['locationLongitude'] as double?) ?? 0.0,
+            phone: (s['phoneNumber'] ?? '').toString(),
+            email: null,
+            registrationNumber: s['registrationNumber']?.toString(),
+            status: 'active',
+            orders: const [],
+            sales: const [],
+            lastVisit: DateTime.now(),
+          ),
+        );
+      }
+    } catch (e) {
+      // If agent stores fetch fails, fallback to regular customers endpoint
+      debugPrint('Failed to fetch agent stores from Weve: $e');
+      return await fetchAllShops();
+    }
+
+    return shops;
   }
 
   Future<List<Product>> fetchAllProducts({int pageSize = 200}) async {
@@ -346,6 +512,34 @@ class WarehouseWebBridge {
     } while (page <= totalPages);
 
     return shops;
+  }
+
+  /// Create order in warehouse backend
+  ///
+  /// POST /api/orders
+  /// Body: {
+  ///   customerId: int,
+  ///   items: [{ productId: int, quantity: int }],
+  ///   orderType?: 'Market' | 'Store',
+  ///   paymentMethod?: 'Cash' | 'Credit' | 'BankTransfer' | 'Sales' | 'Padan'
+  /// }
+  Future<Map<String, dynamic>> createOrder({
+    required int customerId,
+    required List<Map<String, dynamic>> items,
+    String? orderType,
+    String? paymentMethod,
+    String? deliveryDate,
+    int? creditTermDays,
+  }) async {
+    final body = await _postJson('orders', data: {
+      'customerId': customerId,
+      'items': items,
+      if (orderType != null) 'orderType': orderType,
+      if (paymentMethod != null) 'paymentMethod': paymentMethod,
+      if (deliveryDate != null) 'deliveryDate': deliveryDate,
+      if (creditTermDays != null) 'creditTermDays': creditTermDays,
+    });
+    return _unwrapData(body);
   }
 }
 

@@ -4,37 +4,21 @@ import '../models/sales_model.dart';
 
 class ShopProvider extends ChangeNotifier {
   List<Shop> _shops = [];
-  bool _isUsingMock = true;
   bool _isLoading = false;
   String? _error;
 
   List<Shop> get shops => _shops;
-  bool get isUsingMock => _isUsingMock;
   bool get isLoading => _isLoading;
   String? get error => _error;
 
   ShopProvider() {
     // Start empty (no demo/mock shops)
     _shops = [];
-    _isUsingMock = false;
-  }
-
-  void _loadMockData() {
-    // Deprecated: kept only for backward compatibility with older screens.
-    // Intentionally leave empty so demo shops do not appear.
-    _shops = [];
-    _isUsingMock = false;
-    notifyListeners();
   }
 
   void setShops(List<Shop> shops) {
     _shops = shops;
-    _isUsingMock = false;
     notifyListeners();
-  }
-
-  void resetToMock() {
-    _loadMockData();
   }
 
   Shop? getShopById(String id) {

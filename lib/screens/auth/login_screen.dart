@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import '../../providers/mobileUserLogin.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/location_provider.dart';
+import '../../providers/warehouse_provider.dart';
 import '../../widgets/hamburger_menu.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -34,10 +36,13 @@ class _LoginScreenState extends State<LoginScreen> {
       _isLoading = true;
     });
 
+    final loginProvider = Provider.of<MobileUserLoginProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final success = await authProvider.login(
-      _emailController.text.trim(),
-      _passwordController.text,
+    
+    final success = await loginProvider.login(
+      identifier: _emailController.text.trim(),
+      password: _passwordController.text,
+      authProvider: authProvider,
     );
 
     setState(() {
@@ -46,23 +51,43 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (mounted) {
       if (success) {
+        // Connect to warehouse backend and fetch data
+        try {
+          final warehouseProvider = Provider.of<WarehouseProvider>(context, listen: false);
+          await warehouseProvider.connect(
+            identifier: _emailController.text.trim(),
+            password: _passwordController.text,
+            authProvider: authProvider,
+          );
+          
+          // Fetch products and shops from warehouse
+          await warehouseProvider.refreshProducts();
+          await warehouseProvider.refreshShops(authProvider: authProvider);
+        } catch (e) {
+          // Continue even if warehouse connection fails
+          debugPrint('Warehouse connection failed: $e');
+        }
+        
         // Login succeeded -> start location tracking immediately (asks permission if needed)
         // Avoid auto-prompt on web unless explicitly desired.
         if (!kIsWeb) {
           await Provider.of<LocationProvider>(context, listen: false).startTracking();
         }
 
-        final role = Provider.of<AuthProvider>(context, listen: false).userRole;
+        final role = authProvider.userRole;
         if (role == 'order') {
           context.go('/order-screen');
         } else {
           context.go('/sales-dashboard');
         }
       } else {
+        // Show error from loginProvider
+        final errorMessage = loginProvider.error ?? 'Нэвтрэх үед алдаа гарлаа. Дахин оролдоно уу.';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Invalid email or password'),
+          SnackBar(
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
           ),
         );
       }

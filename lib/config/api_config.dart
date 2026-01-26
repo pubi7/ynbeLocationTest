@@ -70,7 +70,7 @@ class ApiConfig {
     //   --dart-define=BACKEND_SERVER_URL=http://localhost:3000
     // Android emulator: localhost points to the emulator itself, so use 10.0.2.2 (host loopback).
     // NOTE: This does NOT work for a physical phone; for phones use your PC LAN IP via --dart-define.
-    if (PlatformInfo.isAndroid) return 'http://10.0.2.2:3000';
+    // For Flutter Web and all platforms in development, use localhost:3000
     return 'http://localhost:3000';
   }
 

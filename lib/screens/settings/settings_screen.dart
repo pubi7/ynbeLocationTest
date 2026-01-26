@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart' as latlong;
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/mobileUserLogin.dart';
 import '../../providers/location_provider.dart';
 import '../../providers/order_provider.dart';
 import '../../providers/product_provider.dart';
@@ -47,6 +48,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadTargets();
     _loadWarehouseApiBaseUrl();
+    // Refresh profile when screen loads if connected
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshProfileIfConnected();
+    });
+  }
+
+  Future<void> _refreshProfileIfConnected() async {
+    final warehouseProvider = Provider.of<WarehouseProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    
+    if (warehouseProvider.connected) {
+      try {
+        await warehouseProvider.refreshProfile(authProvider);
+      } catch (e) {
+        debugPrint('Failed to refresh profile on init: $e');
+      }
+    }
   }
 
   @override
@@ -196,6 +214,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Consumer3<WarehouseProvider, ProductProvider, ShopProvider>(
                   builder: (context, warehouseProvider, productProvider,
                       shopProvider, _) {
+                    final authProvider = Provider.of<AuthProvider>(context, listen: false);
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -311,12 +330,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                               password:
                                                   _warehousePasswordController
                                                       .text,
+                                              authProvider: authProvider,
                                             );
                                             if (ok) {
+                                              // Refresh profile after successful connection
+                                              try {
+                                                await warehouseProvider.refreshProfile(authProvider);
+                                              } catch (e) {
+                                                debugPrint('Failed to refresh profile: $e');
+                                              }
+                                              
                                               await warehouseProvider
                                                   .refreshProducts();
                                               await warehouseProvider
-                                                  .refreshShops();
+                                                  .refreshShops(authProvider: authProvider);
                                               productProvider.setProducts(
                                                   warehouseProvider.products);
                                               shopProvider.setShops(
@@ -342,7 +369,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     : () async {
                                         await warehouseProvider
                                             .refreshProducts();
-                                        await warehouseProvider.refreshShops();
+                                        await warehouseProvider.refreshShops(authProvider: authProvider);
                                         productProvider.setProducts(
                                             warehouseProvider.products);
                                         shopProvider
@@ -568,34 +595,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 20),
 
-            // Support Section
-            _buildSectionCard(
-              'Support',
-              Icons.help_rounded,
-              const Color(0xFFEF4444),
-              [
-                _buildActionTile(
-                  'Help Center',
-                  'Get help and support',
-                  Icons.help_center_rounded,
-                  () => _showHelpDialog(),
-                ),
-                _buildActionTile(
-                  'Contact Us',
-                  'Send us feedback',
-                  Icons.contact_support_rounded,
-                  () => _showContactDialog(),
-                ),
-                _buildActionTile(
-                  'About',
-                  'App version and information',
-                  Icons.info_rounded,
-                  () => _showAboutDialog(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
             // Logout Button
             SizedBox(
               width: double.infinity,
@@ -668,8 +667,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildProfileTile() {
-    return Consumer<AuthProvider>(
-      builder: (context, authProvider, child) {
+    return Consumer2<AuthProvider, WarehouseProvider>(
+      builder: (context, authProvider, warehouseProvider, child) {
+        // Get display name - prefer displayName from backend, fallback to name
+        final displayName = authProvider.user?.name ?? 'User';
+        final roleDisplay = (authProvider.user?.role ?? 'user').toUpperCase();
+        
         return ListTile(
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -681,18 +684,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           title: Text(
-            authProvider.user?.name ?? 'User',
+            displayName,
             style: const TextStyle(
               fontWeight: FontWeight.w600,
               fontSize: 16,
             ),
           ),
-          subtitle: Text(
-            (authProvider.user?.role ?? 'user').toUpperCase(),
-            style: TextStyle(
-              color: Colors.grey[600],
-              fontSize: 14,
-            ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                roleDisplay,
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 14,
+                ),
+              ),
+              if (warehouseProvider.connected && authProvider.user?.email != null)
+                Text(
+                  authProvider.user!.email!,
+                  style: TextStyle(
+                    color: Colors.grey[500],
+                    fontSize: 12,
+                  ),
+                ),
+            ],
           ),
           trailing: IconButton(
             icon: const Icon(Icons.edit_rounded),
@@ -849,75 +865,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showHelpDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Help Center'),
-        content: const SingleChildScrollView(
-          child: Text(
-            'Need help? Contact our support team at support@aguulga.com or call +1-800-AGUULGA for assistance.',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showContactDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Contact Us'),
-        content: const SingleChildScrollView(
-          child: Text(
-            'We\'d love to hear from you! Send us your feedback, suggestions, or report issues at feedback@aguulga.com',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showAboutDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('About Aguulga Business App'),
-        content: const SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Version: 1.0.0'),
-              SizedBox(height: 8),
-              Text('Build: 2024.01.01'),
-              SizedBox(height: 8),
-              Text(
-                  'Aguulga Business App helps you manage sales, orders, and track your team efficiently.'),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showLogoutDialog() {
     showDialog(
       context: context,
@@ -932,7 +879,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
-              await Provider.of<AuthProvider>(context, listen: false).logout();
+              final loginProvider = Provider.of<MobileUserLoginProvider>(context, listen: false);
+              final authProvider = Provider.of<AuthProvider>(context, listen: false);
+              await loginProvider.logout();
+              await authProvider.logout();
               if (context.mounted) {
                 context.go('/login');
               }

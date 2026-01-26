@@ -145,9 +145,10 @@ class SalesProvider extends ChangeNotifier {
     final end = start.add(const Duration(days: 1));
     final Map<int, double> totals = {};
     for (final s in _sales) {
-      if (s.saleDate.isBefore(start) || !s.saleDate.isBefore(end)) continue;
-      final h = s.saleDate.hour;
-      totals[h] = (totals[h] ?? 0) + s.amount;
+      if (!s.saleDate.isBefore(start) && s.saleDate.isBefore(end)) {
+        final h = s.saleDate.hour;
+        totals[h] = (totals[h] ?? 0) + s.amount;
+      }
     }
     return totals;
   }
@@ -157,9 +158,10 @@ class SalesProvider extends ChangeNotifier {
   Map<DateTime, double> getTotalSalesByDayForRange(DateTime startInclusive, DateTime endExclusive) {
     final Map<DateTime, double> totals = {};
     for (final s in _sales) {
-      if (s.saleDate.isBefore(startInclusive) || !s.saleDate.isBefore(endExclusive)) continue;
-      final d = DateTime(s.saleDate.year, s.saleDate.month, s.saleDate.day);
-      totals[d] = (totals[d] ?? 0) + s.amount;
+      if (!s.saleDate.isBefore(startInclusive) && s.saleDate.isBefore(endExclusive)) {
+        final d = DateTime(s.saleDate.year, s.saleDate.month, s.saleDate.day);
+        totals[d] = (totals[d] ?? 0) + s.amount;
+      }
     }
     return totals;
   }

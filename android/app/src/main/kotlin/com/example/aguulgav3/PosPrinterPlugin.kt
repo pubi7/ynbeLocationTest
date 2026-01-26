@@ -14,6 +14,7 @@ class PosPrinterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var channel: MethodChannel
     private lateinit var context: Context
     private var bluetoothSocket: BluetoothSocket? = null
+    private var wifiSocket: java.net.Socket? = null
     private var outputStream: OutputStream? = null
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
@@ -106,7 +107,11 @@ class PosPrinterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     private fun connectWiFiPrinter(ip: String, port: Int, result: MethodChannel.Result) {
         try {
+            // Close existing WiFi socket if any
+            wifiSocket?.close()
+            
             val socket = java.net.Socket(ip, port)
+            wifiSocket = socket
             outputStream = socket.getOutputStream()
             result.success(true)
         } catch (e: Exception) {
@@ -163,8 +168,10 @@ class PosPrinterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private fun disconnect(result: MethodChannel.Result) {
         try {
             bluetoothSocket?.close()
+            wifiSocket?.close()
             outputStream?.close()
             bluetoothSocket = null
+            wifiSocket = null
             outputStream = null
             result.success(null)
         } catch (e: Exception) {
@@ -176,6 +183,7 @@ class PosPrinterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         channel.setMethodCallHandler(null)
         try {
              bluetoothSocket?.close()
+             wifiSocket?.close()
              outputStream?.close()
         } catch (e: Exception) {
             // Ignore

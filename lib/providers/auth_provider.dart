@@ -26,51 +26,9 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> login(String email, String password) async {
-    try {
-      // Simulate API call
-      await Future.delayed(const Duration(seconds: 1));
-      
-      // Mock login logic - in real app, call your API
-      if (email == 'sales@company.com' && password == 'sales123') {
-        _user = User(
-          id: '1',
-          name: 'Sales Staff',
-          email: email,
-          role: 'sales',
-          companyId: 'company1',
-          createdAt: DateTime.now(),
-        );
-        _userRole = 'sales';
-        _isLoggedIn = true;
-        
-        await _saveUserData();
-        notifyListeners();
-        return true;
-      }
-
-      // Order user (separate account)
-      if (email == 'order@company.com' && password == 'order123') {
-        _user = User(
-          id: '2',
-          name: 'Order Staff',
-          email: email,
-          role: 'order',
-          companyId: 'company1',
-          createdAt: DateTime.now(),
-        );
-        _userRole = 'order';
-        _isLoggedIn = true;
-
-        await _saveUserData();
-        notifyListeners();
-        return true;
-      }
-      return false;
-    } catch (e) {
-      return false;
-    }
-  }
+  // Login functionality has been moved to MobileUserLoginProvider
+  // This provider now only stores and provides user data
+  // Use MobileUserLoginProvider.login() for authentication
 
 
   Future<void> _saveUserData() async {
@@ -87,6 +45,28 @@ class AuthProvider extends ChangeNotifier {
     _user = null;
     _isLoggedIn = false;
     _userRole = '';
+    notifyListeners();
+  }
+
+  /// Update user data from backend profile
+  Future<void> updateFromBackend({
+    required String id,
+    required String name,
+    required String email,
+    required String role,
+  }) async {
+    _user = User(
+      id: id,
+      name: name,
+      email: email,
+      role: role,
+      companyId: 'warehouse1',
+      createdAt: DateTime.now(),
+    );
+    _userRole = role;
+    _isLoggedIn = true;
+    
+    await _saveUserData();
     notifyListeners();
   }
 }

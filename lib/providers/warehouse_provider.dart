@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import '../models/product_model.dart';
 import '../models/shop_model.dart';
 import '../services/warehouse_web_bridge.dart';
+import 'auth_provider.dart';
 
 class WarehouseProvider extends ChangeNotifier {
   final WarehouseWebBridge _bridge;
@@ -49,7 +50,7 @@ class WarehouseProvider extends ChangeNotifier {
   }
 
   Future<bool> connect(
-      {required String identifier, required String password}) async {
+      {required String identifier, required String password, AuthProvider? authProvider}) async {
     _loading = true;
     _error = null;
     notifyListeners();
@@ -58,6 +59,25 @@ class WarehouseProvider extends ChangeNotifier {
       final token =
           await _bridge.login(identifier: identifier, password: password);
       _token = token;
+
+      // Fetch user profile and update AuthProvider
+      if (authProvider != null) {
+        try {
+          final profileData = await _bridge.getProfile();
+          final userData = profileData['user'] as Map<String, dynamic>?;
+          if (userData != null) {
+            await authProvider.updateFromBackend(
+              id: (userData['id'] ?? '').toString(),
+              name: userData['displayName']?.toString() ?? userData['name']?.toString() ?? 'User',
+              email: userData['email']?.toString() ?? identifier,
+              role: userData['roleDisplay']?.toString().toLowerCase() ?? userData['role']?.toString().toLowerCase() ?? 'user',
+            );
+          }
+        } catch (e) {
+          // If profile fetch fails, continue with connection
+          debugPrint('Failed to fetch profile: $e');
+        }
+      }
 
       _connected = true;
       _loading = false;
@@ -105,13 +125,27 @@ class WarehouseProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshShops({int pageSize = 200}) async {
+  Future<void> refreshShops({int pageSize = 200, AuthProvider? authProvider}) async {
     if (!_connected) return;
     _loading = true;
     _error = null;
     notifyListeners();
 
     try {
+      // If agent is logged in, try to fetch stores from Weve using agent's token
+      if (authProvider != null && authProvider.user?.role?.toLowerCase() == 'sales') {
+        try {
+          _shops = await _bridge.fetchAgentStores();
+          _loading = false;
+          notifyListeners();
+          return;
+        } catch (e) {
+          // If agent stores fetch fails, fallback to regular customers endpoint
+          debugPrint('Failed to fetch agent stores, falling back to customers: $e');
+        }
+      }
+      
+      // Fallback to regular customers endpoint
       _shops = await _bridge.fetchAllShops(pageSize: pageSize);
       _loading = false;
       notifyListeners();
@@ -123,6 +157,57 @@ class WarehouseProvider extends ChangeNotifier {
       _error = e.toString();
       _loading = false;
       notifyListeners();
+    }
+  }
+
+  /// Create order in warehouse backend
+  Future<Map<String, dynamic>> createOrder({
+    required int customerId,
+    required List<Map<String, dynamic>> items,
+    String? orderType,
+    String? paymentMethod,
+    String? deliveryDate,
+    int? creditTermDays,
+  }) async {
+    if (!_connected) {
+      throw Exception('Not connected to warehouse backend');
+    }
+
+    try {
+      return await _bridge.createOrder(
+        customerId: customerId,
+        items: items,
+        orderType: orderType,
+        paymentMethod: paymentMethod,
+        deliveryDate: deliveryDate,
+        creditTermDays: creditTermDays,
+      );
+    } catch (e) {
+      if (e is DioException && e.response?.statusCode == 401) {
+        await disconnect();
+      }
+      rethrow;
+    }
+  }
+
+  /// Refresh user profile from backend and update AuthProvider
+  Future<void> refreshProfile(AuthProvider authProvider) async {
+    if (!_connected) return;
+    
+    try {
+      final profileData = await _bridge.getProfile();
+      final userData = profileData['user'] as Map<String, dynamic>?;
+      if (userData != null) {
+        await authProvider.updateFromBackend(
+          id: (userData['id'] ?? '').toString(),
+          name: userData['displayName']?.toString() ?? userData['name']?.toString() ?? 'User',
+          email: userData['email']?.toString() ?? '',
+          role: userData['roleDisplay']?.toString().toLowerCase() ?? userData['role']?.toString().toLowerCase() ?? 'user',
+        );
+      }
+    } catch (e) {
+      debugPrint('Failed to refresh profile: $e');
+      rethrow;
     }
   }
 }

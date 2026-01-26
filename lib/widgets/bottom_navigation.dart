@@ -50,7 +50,7 @@ class BottomNavigationWidget extends StatelessWidget {
                     Icons.sell_rounded,
                     const Color(0xFF10B981),
                     '/sales-entry',
-                    currentRoute == '/sales-entry' || currentRoute == '/sales-history' || currentRoute == '/performance',
+                    currentRoute == '/sales-entry',
                   ),
                 if (role == 'order')
                   _buildBottomNavItem(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/mobileUserLogin.dart';
 import '../../providers/sales_provider.dart';
 import '../../providers/order_provider.dart';
 import '../../models/sales_model.dart';
@@ -247,7 +248,10 @@ class _SalesDashboardState extends State<SalesDashboard> {
             child: IconButton(
               icon: const Icon(Icons.logout_rounded),
               onPressed: () async {
-                await Provider.of<AuthProvider>(context, listen: false).logout();
+                final loginProvider = Provider.of<MobileUserLoginProvider>(context, listen: false);
+                final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                await loginProvider.logout();
+                await authProvider.logout();
                 if (context.mounted) {
                   context.go('/login');
                 }
@@ -267,12 +271,10 @@ class _SalesDashboardState extends State<SalesDashboard> {
           final todayTotal = salesProvider.getTotalSalesForDay(now);
           final todayPct = _dailyTarget <= 0 ? 0.0 : (todayTotal / _dailyTarget);
           final todayPctText = (todayPct * 100).clamp(0, 999).toStringAsFixed(0);
-          final selectedStart = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
-          final selectedEnd = selectedStart.add(const Duration(days: 1));
-          final ordersForDay = orderProvider.orders
-              .where((o) => !o.orderDate.isBefore(selectedStart) && o.orderDate.isBefore(selectedEnd))
-              .toList();
-          ordersForDay.sort((a, b) => b.orderDate.compareTo(a.orderDate));
+          
+          // Show ALL orders, not just selected day
+          final allOrders = orderProvider.orders.toList();
+          allOrders.sort((a, b) => b.orderDate.compareTo(a.orderDate));
 
           return SingleChildScrollView(
             child: Column(
@@ -400,7 +402,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                 border: Border.all(color: Colors.white.withOpacity(0.18)),
                               ),
                               child: Text(
-                                'Тухайн өдрийн захиалга: ${ordersForDay.length}',
+                                'Нийт захиалга: ${allOrders.length}',
                                 style: TextStyle(color: Colors.white.withOpacity(0.95), fontWeight: FontWeight.w600),
                               ),
                             ),
@@ -443,7 +445,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
 
                 // Monthly progress removed; only today % badge shown in header.
 
-                // Orders for selected day
+                // Orders list - Show ALL orders
                 if (role == 'order')
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -451,7 +453,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Захиалга (${_formatDate(context, _selectedDate)})',
+                          'Бүх захиалга',
                           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: const Color(0xFF1E293B),
@@ -462,7 +464,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
                           const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()))
                         else if (orderProvider.error != null)
                           Text(orderProvider.error!, style: const TextStyle(color: Colors.red))
-                        else if (ordersForDay.isEmpty)
+                        else if (allOrders.isEmpty)
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.all(16),
@@ -471,16 +473,16 @@ class _SalesDashboardState extends State<SalesDashboard> {
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(color: Colors.grey.shade200),
                             ),
-                            child: const Text('Энэ өдөр захиалга байхгүй байна.'),
+                            child: const Text('Захиалга байхгүй байна.'),
                           )
                         else
                           ListView.separated(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
-                            itemCount: ordersForDay.length,
+                            itemCount: allOrders.length,
                             separatorBuilder: (_, __) => const SizedBox(height: 10),
                             itemBuilder: (context, i) {
-                              final o = ordersForDay[i];
+                              final o = allOrders[i];
                               final statusColor = switch (o.status) {
                                 'pending' => const Color(0xFFF59E0B),
                                 'confirmed' => const Color(0xFF3B82F6),

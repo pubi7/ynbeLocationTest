@@ -6,12 +6,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'dart:convert';
+import '../config/api_config.dart';
 
 class LocationProvider extends ChangeNotifier {
   LatLng? _currentLocation;
   List<LatLng> _locationHistory = [];
   StreamSubscription<Position>? _positionSub;
   Timer? _locationUpdateTimer; // 2 секунд тутамд байршлыг шинэчлэх timer
+  Timer? _backendSyncTimer; // Backend руу байршил илгээх timer
   bool _isTracking = false;
   String? _errorMessage;
   bool _isLocationServiceEnabled = false;
@@ -21,6 +23,7 @@ class LocationProvider extends ChangeNotifier {
   DateTime? _lastLocationUpdateTime; // GPS байршлын сүүлийн шинэчлэлтийн цаг
   String? _currentIpAddress; // Одоогийн IP хаяг
   static const double _minDistanceToSave = 20.0; // 20 метрийн хүрээ доторх хөдөлгөөнийг хадгалахгүй
+  int? _currentAgentId; // Одоогийн борлуулагчийн ID
 
   // Storage keys
   static const String _locationHistoryKey = 'location_history';
@@ -34,6 +37,92 @@ class LocationProvider extends ChangeNotifier {
     _loadSavedLocations();
     _loadSavedTimes();
     _loadAutoStartPref();
+    _loadAgentId();
+  }
+
+  /// Load agent ID from SharedPreferences
+  Future<void> _loadAgentId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _currentAgentId = prefs.getInt('agent_id');
+      if (_currentAgentId != null) {
+        print('✅ Agent ID ачаалагдлаа: $_currentAgentId');
+      }
+    } catch (e) {
+      print('Алдаа: Agent ID ачаалах: $e');
+    }
+  }
+
+  /// Set agent ID
+  Future<void> setAgentId(int agentId) async {
+    _currentAgentId = agentId;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('agent_id', agentId);
+      print('✅ Agent ID хадгалагдлаа: $agentId');
+    } catch (e) {
+      print('Алдаа: Agent ID хадгалах: $e');
+    }
+    notifyListeners();
+  }
+
+  /// Send location to backend
+  Future<bool> _sendLocationToBackend(LatLng location) async {
+    if (_currentAgentId == null) {
+      print('⚠️  Agent ID байхгүй, backend руу илгээх боломжгүй');
+      return false;
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+
+      if (token == null) {
+        print('⚠️  Auth token байхгүй');
+        return false;
+      }
+
+      final url = Uri.parse('${ApiConfig.backendServerUrl}/api/agents/$_currentAgentId/location');
+      
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'latitude': location.latitude,
+          'longitude': location.longitude,
+          'ipAddress': _currentIpAddress,
+          'accuracy': 10.0, // Default accuracy
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 201) {
+        print('✅ Байршил backend руу илгээгдлээ: ${location.latitude}, ${location.longitude}');
+        return true;
+      } else {
+        print('❌ Backend алдаа: ${response.statusCode} - ${response.body}');
+        return false;
+      }
+    } catch (e) {
+      print('❌ Backend руу байршил илгээх алдаа: $e');
+      return false;
+    }
+  }
+
+  /// Start periodic backend sync (every 2 minutes)
+  void _startBackendSync() {
+    _backendSyncTimer?.cancel();
+    _backendSyncTimer = Timer.periodic(
+      const Duration(minutes: 2),
+      (Timer timer) async {
+        if (_isTracking && _currentLocation != null) {
+          await _sendLocationToBackend(_currentLocation!);
+        }
+      },
+    );
+    print('🔄 Backend sync эхлүүлэгдлээ (2 минут тутамд)');
   }
 
   LatLng? get currentLocation => _currentLocation;
@@ -462,6 +551,9 @@ class LocationProvider extends ChangeNotifier {
       _isTracking = true;
       notifyListeners();
       
+      // Start backend sync
+      _startBackendSync();
+      
       // Try to get current position first with better accuracy
       try {
         Position currentPos = await Geolocator.getCurrentPosition(
@@ -614,6 +706,8 @@ class LocationProvider extends ChangeNotifier {
     _positionSub = null;
     _locationUpdateTimer?.cancel();
     _locationUpdateTimer = null;
+    _backendSyncTimer?.cancel();
+    _backendSyncTimer = null;
     notifyListeners();
   }
 
@@ -945,6 +1039,7 @@ class LocationProvider extends ChangeNotifier {
   void dispose() {
     _positionSub?.cancel();
     _locationUpdateTimer?.cancel();
+    _backendSyncTimer?.cancel();
     super.dispose();
   }
 }

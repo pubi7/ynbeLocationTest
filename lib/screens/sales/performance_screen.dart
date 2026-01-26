@@ -22,6 +22,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   late DateTime _focusedDay;
   late DateTime _selectedDay;
   String _productQuery = '';
+  String? _selectedAgent; // Filter by agent
 
   @override
   void initState() {
@@ -72,16 +73,31 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       body: Consumer<SalesProvider>(
         builder: (context, salesProvider, _) {
           final range = _dayRange();
-          final selectedTotal = salesProvider.getTotalSalesForDay(_selectedDay);
+          
+          // Get all sales and filter by agent if selected
+          final allSalesInRange = salesProvider.getSalesByDateRange(range.start, range.endExclusive);
+          final filteredSales = _selectedAgent == null
+              ? allSalesInRange
+              : allSalesInRange.where((s) => s.salespersonName == _selectedAgent).toList();
+          
+          final selectedTotal = filteredSales.fold<double>(0, (sum, s) => sum + s.amount);
 
           final target = _dailyTarget;
           final pct = target <= 0 ? 0.0 : (selectedTotal / target);
 
           final productCounts = _buildProductCounts(
-            salesProvider.getSalesByDateRange(range.start, range.endExclusive),
+            filteredSales,
             query: _productQuery,
           );
           final totalQty = productCounts.fold<int>(0, (sum, e) => sum + e.count);
+          
+          // Get unique agent names
+          final allAgents = salesProvider.sales
+              .map((s) => s.salespersonName)
+              .where((name) => name.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort();
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(20),
@@ -153,6 +169,104 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                           });
                         },
                       ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Agent Filter Dropdown
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.person_outline, color: Color(0xFF6366F1), size: 20),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Ажилтан сонгох',
+                            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: _selectedAgent,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          hintText: 'Бүх ажилтан',
+                          prefixIcon: const Icon(Icons.filter_list_rounded),
+                          isDense: true,
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade200),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade200),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFF6366F1), width: 2),
+                          ),
+                        ),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: null,
+                            child: Text('Бүх ажилтан', style: TextStyle(fontWeight: FontWeight.w600)),
+                          ),
+                          ...allAgents.map((agent) => DropdownMenuItem<String>(
+                                value: agent,
+                                child: Text(agent, overflow: TextOverflow.ellipsis),
+                              )),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedAgent = value;
+                          });
+                        },
+                      ),
+                      if (_selectedAgent != null) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 16),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Шүүлтүүр: $_selectedAgent',
+                                  style: const TextStyle(
+                                    color: Color(0xFF10B981),
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 16, color: Color(0xFF10B981)),
+                                onPressed: () => setState(() => _selectedAgent = null),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
