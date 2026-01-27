@@ -272,9 +272,16 @@ class _SalesDashboardState extends State<SalesDashboard> {
           final todayPct = _dailyTarget <= 0 ? 0.0 : (todayTotal / _dailyTarget);
           final todayPctText = (todayPct * 100).clamp(0, 999).toStringAsFixed(0);
           
-          // Show ALL orders, not just selected day
-          final allOrders = orderProvider.orders.toList();
-          allOrders.sort((a, b) => b.orderDate.compareTo(a.orderDate));
+          // Filter orders by selected date
+          final selectedDayStart = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+          final selectedDayEnd = selectedDayStart.add(const Duration(days: 1));
+          
+          final filteredOrders = orderProvider.orders.where((order) {
+            final orderDay = DateTime(order.orderDate.year, order.orderDate.month, order.orderDate.day);
+            return !orderDay.isBefore(selectedDayStart) && orderDay.isBefore(selectedDayEnd);
+          }).toList();
+          
+          filteredOrders.sort((a, b) => b.orderDate.compareTo(a.orderDate));
 
           return SingleChildScrollView(
             child: Column(
@@ -402,7 +409,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                 border: Border.all(color: Colors.white.withOpacity(0.18)),
                               ),
                               child: Text(
-                                'Нийт захиалга: ${allOrders.length}',
+                                'Нийт захиалга: ${filteredOrders.length}',
                                 style: TextStyle(color: Colors.white.withOpacity(0.95), fontWeight: FontWeight.w600),
                               ),
                             ),
@@ -422,7 +429,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
                         Expanded(
                           child: _buildModernStatCard(
                             'Total Sales',
-                            '\$${salesProvider.getTotalSales().toStringAsFixed(2)}',
+                            '\$${salesProvider.getTotalSalesForDay(_selectedDate).toStringAsFixed(2)}',
                             Icons.trending_up_rounded,
                             const Color(0xFF10B981),
                             const Color(0xFFECFDF5),
@@ -432,7 +439,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
                         Expanded(
                           child: _buildModernStatCard(
                             'Orders',
-                            '${orderProvider.orders.length}',
+                            '${filteredOrders.length}',
                             Icons.shopping_cart_rounded,
                             const Color(0xFF3B82F6),
                             const Color(0xFFEFF6FF),
@@ -453,7 +460,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Бүх захиалга',
+                          '${_formatDate(context, _selectedDate)}-ний захиалга',
                           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: const Color(0xFF1E293B),
@@ -464,7 +471,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
                           const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()))
                         else if (orderProvider.error != null)
                           Text(orderProvider.error!, style: const TextStyle(color: Colors.red))
-                        else if (allOrders.isEmpty)
+                        else if (filteredOrders.isEmpty)
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.all(16),
@@ -473,16 +480,16 @@ class _SalesDashboardState extends State<SalesDashboard> {
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(color: Colors.grey.shade200),
                             ),
-                            child: const Text('Захиалга байхгүй байна.'),
+                            child: Text('${_formatDate(context, _selectedDate)}-нд захиалга байхгүй байна.'),
                           )
                         else
                           ListView.separated(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
-                            itemCount: allOrders.length,
+                            itemCount: filteredOrders.length,
                             separatorBuilder: (_, __) => const SizedBox(height: 10),
                             itemBuilder: (context, i) {
-                              final o = allOrders[i];
+                              final o = filteredOrders[i];
                               final statusColor = switch (o.status) {
                                 'pending' => const Color(0xFFF59E0B),
                                 'confirmed' => const Color(0xFF3B82F6),

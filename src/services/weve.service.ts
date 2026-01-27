@@ -145,8 +145,10 @@ class WeveService {
 
   /**
    * Push order to Weve
+   * @param order Order data to push
+   * @param authToken Optional: Authentication token from logged-in user. If provided, order will be sent on behalf of that user.
    */
-  async pushOrder(order: PushOrderParams): Promise<PushOrderResponse> {
+  async pushOrder(order: PushOrderParams, authToken?: string): Promise<PushOrderResponse> {
     if (config.weve.mockMode) {
       logger.warn("Weve mock mode - simulating order push");
       return {
@@ -166,10 +168,22 @@ class WeveService {
     }
 
     try {
+      // Prepare headers with authentication token if provided
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      
+      if (authToken) {
+        headers["Authorization"] = `Bearer ${authToken}`;
+        logger.info("Pushing order to Weve with user authentication token");
+      }
+
       const response = await this.client.post<{
         weveOrderId?: string;
         message?: string;
-      }>("/orders", order);
+      }>("/orders", order, {
+        headers,
+      });
 
       return {
         success: true,
@@ -183,6 +197,7 @@ class WeveService {
         error: error.message,
         status: error.response?.status,
         orderNumber: order.orderNumber,
+        hasAuthToken: !!authToken,
       });
 
       return {

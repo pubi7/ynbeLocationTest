@@ -499,7 +499,8 @@ class WarehouseWebBridge {
   ///   customerId: int,
   ///   items: [{ productId: int, quantity: int }],
   ///   orderType?: 'Market' | 'Store',
-  ///   paymentMethod?: 'Cash' | 'Credit' | 'BankTransfer' | 'Sales' | 'Padan'
+  ///   paymentMethod?: 'Cash' | 'Credit' | 'BankTransfer' | 'Sales' | 'Padan',
+  ///   userWeveToken?: string  // Optional: Weve authentication token from logged-in user
   /// }
   Future<Map<String, dynamic>> createOrder({
     required int customerId,
@@ -508,6 +509,7 @@ class WarehouseWebBridge {
     String? paymentMethod,
     String? deliveryDate,
     int? creditTermDays,
+    String? userWeveToken, // Weve token from logged-in user
   }) async {
     final body = await _postJson('orders', data: {
       'customerId': customerId,
@@ -516,6 +518,7 @@ class WarehouseWebBridge {
       if (paymentMethod != null) 'paymentMethod': paymentMethod,
       if (deliveryDate != null) 'deliveryDate': deliveryDate,
       if (creditTermDays != null) 'creditTermDays': creditTermDays,
+      if (userWeveToken != null) 'userWeveToken': userWeveToken, // Pass user's Weve token
     });
     return _unwrapData(body);
   }

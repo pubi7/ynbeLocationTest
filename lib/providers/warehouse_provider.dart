@@ -132,17 +132,21 @@ class WarehouseProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // If agent is logged in, try to fetch stores from Weve using agent's token
-      if (authProvider != null && authProvider.user?.role?.toLowerCase() == 'sales') {
-        try {
-          _shops = await _bridge.fetchAgentStores();
+      // Try to fetch agent stores first for all users
+      // fetchAgentStores already has fallback logic, so it's safe to try
+      // This ensures agent-login users can see their stores even if role isn't set correctly
+      try {
+        final agentShops = await _bridge.fetchAgentStores();
+        // Only use agent stores if we got results, otherwise fallback
+        if (agentShops.isNotEmpty) {
+          _shops = agentShops;
           _loading = false;
           notifyListeners();
           return;
-        } catch (e) {
-          // If agent stores fetch fails, fallback to regular customers endpoint
-          debugPrint('Failed to fetch agent stores, falling back to customers: $e');
         }
+      } catch (e) {
+        // If agent stores fetch fails, fallback to regular customers endpoint
+        debugPrint('Failed to fetch agent stores, falling back to customers: $e');
       }
       
       // Fallback to regular customers endpoint

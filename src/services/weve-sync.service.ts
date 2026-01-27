@@ -167,14 +167,22 @@ class WeveSyncService {
    * Auto-push order to Weve when created in aguulga3
    * Called automatically after order creation
    */
-  async autoPushOrderToWeve(orderId: number): Promise<OrderPushResult> {
-    if (!weveAuthService.isLoggedIn()) {
-      logger.warn(`Cannot push order ${orderId}: Not logged in to Weve`);
-      return {
-        success: false,
-        orderId,
-        message: "Not logged in to Weve",
-      };
+  async autoPushOrderToWeve(orderId: number, userWeveToken?: string): Promise<OrderPushResult> {
+    // Try to use provided user token, otherwise fall back to backend session
+    let authToken: string | undefined = userWeveToken;
+    
+    if (!authToken) {
+      // Fallback: Use backend Weve session if available
+      if (weveAuthService.isLoggedIn()) {
+        authToken = weveAuthService.getAuthToken() || undefined;
+      } else {
+        logger.warn(`Cannot push order ${orderId}: No user token provided and not logged in to Weve`);
+        return {
+          success: false,
+          orderId,
+          message: "Not logged in to Weve and no user token provided",
+        };
+      }
     }
 
     try {
@@ -188,6 +196,7 @@ class WeveSyncService {
               product: true,
             },
           },
+          createdBy: true, // Include user who created the order
         },
       });
 
@@ -240,8 +249,13 @@ class WeveSyncService {
         status: order.status,
       };
 
-      // Push to Weve
-      const result = await weveService.pushOrder(weveOrder);
+      // Push to Weve with user's authentication token
+      logger.info(`Pushing order ${orderId} to Weve with user authentication`, {
+        hasToken: !!authToken,
+        createdBy: (order as any).createdBy?.email || (order as any).createdBy?.name || "unknown",
+      });
+      
+      const result = await weveService.pushOrder(weveOrder, authToken);
 
       if (result.success) {
         logger.info(`Order ${orderId} automatically pushed to Weve`, {
