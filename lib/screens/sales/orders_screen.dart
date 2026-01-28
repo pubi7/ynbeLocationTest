@@ -31,7 +31,7 @@ class OrdersScreen extends StatelessWidget {
         ],
       ),
       drawer: const HamburgerMenu(),
-      bottomNavigationBar: const BottomNavigationWidget(currentRoute: '/sales-orders'),
+      bottomNavigationBar: const BottomNavigationWidget(),
       body: Consumer<OrderProvider>(
         builder: (context, orderProvider, child) {
           return SingleChildScrollView(

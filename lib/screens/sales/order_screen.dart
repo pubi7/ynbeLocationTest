@@ -178,7 +178,7 @@ class _OrderScreenState extends State<OrderScreen> {
         ],
       ),
       drawer: const HamburgerMenu(),
-      bottomNavigationBar: const BottomNavigationWidget(currentRoute: '/order-screen'),
+      bottomNavigationBar: const BottomNavigationWidget(),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(

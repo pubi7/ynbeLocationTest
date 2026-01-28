@@ -31,7 +31,7 @@ class SalesHistoryScreen extends StatelessWidget {
         ],
       ),
       drawer: const HamburgerMenu(),
-      bottomNavigationBar: const BottomNavigationWidget(currentRoute: '/sales-history'),
+      bottomNavigationBar: const BottomNavigationWidget(),
       body: Consumer<SalesProvider>(
         builder: (context, salesProvider, child) {
           return SingleChildScrollView(

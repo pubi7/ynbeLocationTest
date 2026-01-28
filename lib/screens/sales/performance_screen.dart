@@ -69,7 +69,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         ),
       ),
       drawer: const HamburgerMenu(),
-      bottomNavigationBar: const BottomNavigationWidget(currentRoute: '/performance'),
+      bottomNavigationBar: const BottomNavigationWidget(),
       body: Consumer<SalesProvider>(
         builder: (context, salesProvider, _) {
           final range = _dayRange();

@@ -262,7 +262,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
       ),
       drawer: const HamburgerMenu(),
       bottomNavigationBar: Container(
-        child: const BottomNavigationWidget(currentRoute: '/sales-dashboard'),
+        child: const BottomNavigationWidget(),
       ),
       body: Consumer2<SalesProvider, OrderProvider>(
         builder: (context, salesProvider, orderProvider, child) {

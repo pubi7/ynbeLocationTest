@@ -132,25 +132,34 @@ class WarehouseProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Try to fetch agent stores first for all users
-      // fetchAgentStores already has fallback logic, so it's safe to try
-      // This ensures agent-login users can see their stores even if role isn't set correctly
+      // Agent-ийн дэлгүүрүүд (Weve)
+      List<Shop> agentShops = [];
       try {
-        final agentShops = await _bridge.fetchAgentStores();
-        // Only use agent stores if we got results, otherwise fallback
-        if (agentShops.isNotEmpty) {
-          _shops = agentShops;
-          _loading = false;
-          notifyListeners();
-          return;
-        }
+        agentShops = await _bridge.fetchAgentStores();
       } catch (e) {
-        // If agent stores fetch fails, fallback to regular customers endpoint
-        debugPrint('Failed to fetch agent stores, falling back to customers: $e');
+        debugPrint('Agent stores fetch failed: $e');
       }
-      
-      // Fallback to regular customers endpoint
-      _shops = await _bridge.fetchAllShops(pageSize: pageSize);
+
+      // Customers жагсаалтыг үргэлж татаж, олон дэлгүүр гарна
+      List<Shop> customerShops = [];
+      try {
+        customerShops = await _bridge.fetchAllShops(pageSize: pageSize);
+      } catch (e) {
+        if (agentShops.isEmpty) rethrow;
+        debugPrint('Customers fetch failed (using agent shops only): $e');
+      }
+
+      // Нэгтгэх: agent дэлгүүр + customers дахь шинэ ID-тай дэлгүүр
+      final agentIds = agentShops.map((s) => s.id).toSet();
+      final combined = List<Shop>.from(agentShops);
+      for (final c in customerShops) {
+        if (!agentIds.contains(c.id)) {
+          combined.add(c);
+          agentIds.add(c.id);
+        }
+      }
+
+      _shops = combined;
       _loading = false;
       notifyListeners();
     } catch (e) {

@@ -4,20 +4,18 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 
 class BottomNavigationWidget extends StatelessWidget {
-  final String currentRoute;
-  
   const BottomNavigationWidget({
     super.key,
-    required this.currentRoute,
   });
 
   @override
   Widget build(BuildContext context) {
     final role = context.watch<AuthProvider>().userRole;
-    return _buildRoleBottomNav(context, role);
+    final currentRoute = GoRouterState.of(context).uri.path;
+    return _buildRoleBottomNav(context, role, currentRoute);
   }
 
-  Widget _buildRoleBottomNav(BuildContext context, String role) {
+  Widget _buildRoleBottomNav(BuildContext context, String role, String currentRoute) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -43,24 +41,24 @@ class BottomNavigationWidget extends StatelessWidget {
                 '/sales-dashboard',
                 currentRoute == '/sales-dashboard',
               ),
-                if (role != 'order')
-                  _buildBottomNavItem(
-                    context,
-                    'Sales',
-                    Icons.sell_rounded,
-                    const Color(0xFF10B981),
-                    '/sales-entry',
-                    currentRoute == '/sales-entry',
-                  ),
-                if (role == 'order')
-                  _buildBottomNavItem(
-                    context,
-                    'Orders',
-                    Icons.shopping_cart_rounded,
-                    const Color(0xFF3B82F6),
-                    '/sales-orders',
-                    currentRoute == '/sales-orders',
-                  ),
+              if (role != 'order')
+                _buildBottomNavItem(
+                  context,
+                  'Sales',
+                  Icons.sell_rounded,
+                  const Color(0xFF10B981),
+                  '/sales-entry',
+                  currentRoute == '/sales-entry',
+                ),
+              if (role == 'order')
+                _buildBottomNavItem(
+                  context,
+                  'Orders',
+                  Icons.shopping_cart_rounded,
+                  const Color(0xFF3B82F6),
+                  '/sales-orders',
+                  currentRoute == '/sales-orders',
+                ),
             ],
           ),
         ),

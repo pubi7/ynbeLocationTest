@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:printing/printing.dart';
@@ -31,6 +32,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   final _formKey = GlobalKey<FormState>();
   final _notesController = TextEditingController();
   final _productSearchController = TextEditingController();
+  late final TextEditingController _shopFieldController;
 
   String? _selectedShopName;
   bool _showProductList = false; // Control product list visibility
@@ -45,40 +47,110 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       {}; // Store quantities for each product
 
   bool _isLoading = false;
+  bool _shopLoadAttempted = false;
 
   @override
   void initState() {
     super.initState();
+    _shopFieldController = TextEditingController(text: _selectedShopName ?? '');
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final warehouseProvider =
           Provider.of<WarehouseProvider>(context, listen: false);
       if (!warehouseProvider.connected) return;
 
-      // Read-only mode: auto-sync reference data (shops + products) from web if missing.
       final productProvider =
           Provider.of<ProductProvider>(context, listen: false);
       final shopProvider = Provider.of<ShopProvider>(context, listen: false);
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-      if (productProvider.products.isEmpty) {
+      // Always refresh shops when entering Record Sale so дэлгүүрийн мэдээлэл is visible
+      await warehouseProvider.refreshShops(authProvider: authProvider);
+      if (mounted) shopProvider.setShops(warehouseProvider.shops);
+
+      if (productProvider.products.isEmpty && mounted) {
         await warehouseProvider.refreshProducts();
-        productProvider.setProducts(warehouseProvider.products);
-      }
-
-      if (shopProvider.shops.isEmpty) {
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        await warehouseProvider.refreshShops(authProvider: authProvider);
-        shopProvider.setShops(warehouseProvider.shops);
+        if (mounted) productProvider.setProducts(warehouseProvider.products);
       }
     });
   }
 
   @override
   void dispose() {
+    _shopFieldController.dispose();
     _currentQuantityController.dispose();
     _notesController.dispose();
     _productSearchController.dispose();
     super.dispose();
+  }
+
+  void _openShopPicker(BuildContext context, ShopProvider shopProvider) {
+    if (shopProvider.shops.isEmpty) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.5,
+        minChildSize: 0.3,
+        maxChildSize: 0.9,
+        builder: (ctx, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Дэлгүүр сонгох',
+                  style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFFEF4444),
+                  ),
+                ),
+              ),
+              Flexible(
+                child: ListView.builder(
+                  controller: scrollController,
+                  shrinkWrap: true,
+                  itemCount: shopProvider.shops.length,
+                  itemBuilder: (ctx, i) {
+                    final shop = shopProvider.shops[i];
+                    return ListTile(
+                      leading: const Icon(Icons.store, color: Color(0xFFEF4444), size: 22),
+                      title: Text(shop.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                      subtitle: shop.address.isNotEmpty && shop.address != 'N/A'
+                          ? Text(shop.address, style: TextStyle(fontSize: 12, color: Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis)
+                          : null,
+                      onTap: () {
+                        setState(() {
+                          _selectedShopName = shop.name;
+                          _shopFieldController.text = shop.name;
+                        });
+                        Navigator.pop(ctx);
+                        _checkShopCreditStatus(shop.name);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   double get _totalAmount {
@@ -811,8 +883,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         ],
       ),
       drawer: const HamburgerMenu(),
-      bottomNavigationBar:
-          const BottomNavigationWidget(currentRoute: '/sales-entry'),
+      bottomNavigationBar: const BottomNavigationWidget(),
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -889,65 +960,42 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Дэлгүүр сонгох - Autocomplete with search
-                      Consumer<ShopProvider>(
-                        builder: (context, shopProvider, child) {
-                          return Autocomplete<String>(
-                            initialValue: _selectedShopName != null
-                                ? TextEditingValue(text: _selectedShopName!)
-                                : null,
-                            optionsBuilder:
-                                (TextEditingValue textEditingValue) {
-                              if (textEditingValue.text.isEmpty) {
-                                return shopProvider.shops
-                                    .map((shop) => shop.name);
-                              }
-                              final searchQuery =
-                                  textEditingValue.text.toLowerCase();
-                              return shopProvider.shops
-                                  .where((shop) =>
-                                      shop.name
-                                          .toLowerCase()
-                                          .contains(searchQuery) ||
-                                      (shop.address ?? '')
-                                          .toLowerCase()
-                                          .contains(searchQuery) ||
-                                      (shop.phone ?? '')
-                                          .toLowerCase()
-                                          .contains(searchQuery))
-                                  .map((shop) => shop.name);
-                            },
-                            onSelected: (String selection) {
-                              setState(() {
-                                _selectedShopName = selection;
-                              });
-                              _checkShopCreditStatus(selection);
-                            },
-                            fieldViewBuilder: (context, controller, focusNode,
-                                onFieldSubmitted) {
-                              // Sync controller with selected shop
-                              if (_selectedShopName != null &&
-                                  controller.text != _selectedShopName) {
-                                controller.text = _selectedShopName!;
-                              }
-
-                              return TextFormField(
-                                controller: controller,
-                                focusNode: focusNode,
+                      // Дэлгүүр сонгох — дарж жагсаалтаас сонгох (зөвхөн нэр харагдана)
+                      Consumer2<ShopProvider, WarehouseProvider>(
+                        builder: (context, shopProvider, warehouseProvider, child) {
+                          if (shopProvider.shops.isEmpty &&
+                              warehouseProvider.connected &&
+                              !_shopLoadAttempted) {
+                            _shopLoadAttempted = true;
+                            WidgetsBinding.instance.addPostFrameCallback((_) async {
+                              if (!mounted) return;
+                              final wp = Provider.of<WarehouseProvider>(context, listen: false);
+                              final sp = Provider.of<ShopProvider>(context, listen: false);
+                              final ap = Provider.of<AuthProvider>(context, listen: false);
+                              await wp.refreshShops(authProvider: ap);
+                              if (mounted) sp.setShops(wp.shops);
+                            });
+                          }
+                          return GestureDetector(
+                            onTap: () => _openShopPicker(context, shopProvider),
+                            child: AbsorbPointer(
+                              child: TextFormField(
+                                controller: _shopFieldController,
+                                readOnly: true,
                                 decoration: InputDecoration(
                                   labelText: '🏪 Дэлгүүр хайж сонгох',
                                   hintText: shopProvider.shops.isEmpty
                                       ? 'Дэлгүүр татагдаагүй байна'
-                                      : 'Нэр, хаяг, утас бичнэ үү...',
+                                      : 'Дарж дэлгүүр сонгох',
                                   prefixIcon: const Icon(Icons.store,
                                       color: Color(0xFFEF4444)),
-                                  suffixIcon: controller.text.isNotEmpty
+                                  suffixIcon: _selectedShopName != null
                                       ? IconButton(
                                           icon: const Icon(Icons.clear),
                                           onPressed: () {
-                                            controller.clear();
                                             setState(() {
                                               _selectedShopName = null;
+                                              _shopFieldController.clear();
                                             });
                                           },
                                         )
@@ -979,7 +1027,6 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                   if (value == null || value.isEmpty) {
                                     return 'Дэлгүүр сонгоно уу';
                                   }
-                                  // Check if selected shop exists
                                   final exists = shopProvider.shops
                                       .any((shop) => shop.name == value);
                                   if (!exists) {
@@ -987,110 +1034,104 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                   }
                                   return null;
                                 },
-                              );
-                            },
-                            optionsViewBuilder: (context, onSelected, options) {
-                              return Align(
-                                alignment: Alignment.topLeft,
-                                child: Material(
-                                  elevation: 8,
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Container(
-                                    constraints: const BoxConstraints(
-                                        maxHeight: 200), // Reduced from 300
-                                    width:
-                                        MediaQuery.of(context).size.width - 32,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                          color: const Color(0xFFEF4444),
-                                          width: 2),
-                                    ),
-                                    child: ListView.builder(
-                                      padding: EdgeInsets.zero,
-                                      shrinkWrap: true,
-                                      itemCount: options.length,
-                                      itemBuilder:
-                                          (BuildContext context, int index) {
-                                        final option = options.elementAt(index);
-                                        final shop =
-                                            shopProvider.shops.firstWhere(
-                                          (s) => s.name == option,
-                                          orElse: () =>
-                                              shopProvider.shops.first,
-                                        );
-
-                                        return InkWell(
-                                          onTap: () => onSelected(option),
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 10,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              border: Border(
-                                                bottom: BorderSide(
-                                                  color: Colors.grey.shade200,
-                                                  width: 1,
-                                                ),
-                                              ),
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                const Icon(
-                                                  Icons.store,
-                                                  color: Color(0xFFEF4444),
-                                                  size: 18,
-                                                ),
-                                                const SizedBox(width: 10),
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: [
-                                                      Text(
-                                                        option,
-                                                        style: const TextStyle(
-                                                          fontSize: 14,
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                        ),
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                      ),
-                                                      if (shop.address !=
-                                                              null &&
-                                                          shop.address!
-                                                              .isNotEmpty)
-                                                        Text(
-                                                          shop.address!,
-                                                          style: TextStyle(
-                                                            fontSize: 11,
-                                                            color: Colors
-                                                                .grey[600],
-                                                          ),
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                        ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      // Сонгосон дэлгүүрийн мэдээлэл: нэр, бүртгэлийн дугаар, утас, хаяг
+                      Consumer<ShopProvider>(
+                        builder: (context, shopProvider, _) {
+                          if (_selectedShopName == null) return const SizedBox.shrink();
+                          final shop = shopProvider.getShopByName(_selectedShopName!);
+                          if (shop == null) return const SizedBox.shrink();
+                          final regText = (shop.registrationNumber != null &&
+                                  shop.registrationNumber!.isNotEmpty)
+                              ? shop.registrationNumber!
+                              : '–';
+                          final phoneText = shop.phone.isNotEmpty ? shop.phone : '–';
+                          final addressText = shop.address.isNotEmpty && shop.address != 'N/A'
+                              ? shop.address
+                              : '–';
+                          return Container(
+                            margin: const EdgeInsets.only(top: 12),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey.shade300),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Сонгосон дэлгүүр',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey[700],
                                   ),
                                 ),
-                              );
-                            },
+                                const SizedBox(height: 6),
+                                Text(
+                                  shop.name,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1F2937),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Icon(Icons.badge_outlined, size: 16, color: Colors.grey[600]),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Бүртгэлийн дугаар: ',
+                                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        regText,
+                                        style: TextStyle(fontSize: 13, color: Colors.grey[800], fontWeight: FontWeight.w500),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(Icons.phone, size: 16, color: Colors.grey[600]),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Утас: $phoneText',
+                                        style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(Icons.place, size: 16, color: Colors.grey[600]),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Хаяг: $addressText',
+                                        style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           );
                         },
                       ),
@@ -1133,22 +1174,24 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                             // Бараа хайх + Бараа сонгох (+ Шинэ бараа)
                             Consumer<ProductProvider>(
                               builder: (context, productProvider, child) {
-                                // Filter products based on search
+                                // Үнэтэй бараанууд л харуулна; хайлтаар шүүнэ
                                 final searchText =
                                     _productSearchController.text.toLowerCase();
-                                final filteredProducts = searchText.isEmpty
-                                    ? productProvider.products
-                                    : productProvider.products.where((p) {
-                                        return p.name
-                                                .toLowerCase()
-                                                .contains(searchText) ||
-                                            (p.barcode ?? '')
-                                                .toLowerCase()
-                                                .contains(searchText) ||
-                                            (p.productCode ?? '')
-                                                .toLowerCase()
-                                                .contains(searchText);
-                                      }).toList();
+                                final filteredProducts = (searchText.isEmpty
+                                        ? productProvider.products
+                                        : productProvider.products.where((p) {
+                                            return p.name
+                                                    .toLowerCase()
+                                                    .contains(searchText) ||
+                                                (p.barcode ?? '')
+                                                    .toLowerCase()
+                                                    .contains(searchText) ||
+                                                (p.productCode ?? '')
+                                                    .toLowerCase()
+                                                    .contains(searchText);
+                                          }))
+                                    .where((p) => p.price > 0)
+                                    .toList();
 
                                 // Search bar
                                 final searchBar = Container(
@@ -1220,8 +1263,27 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                   items: filteredProducts.map((product) {
                                     return DropdownMenuItem(
                                       value: product.id,
-                                      child: Text(product.name,
-                                          overflow: TextOverflow.ellipsis),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              product.name,
+                                              overflow: TextOverflow.ellipsis,
+                                              style:
+                                                  const TextStyle(fontSize: 14),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            '${product.price.toStringAsFixed(0)} ₮',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: Color(0xFF10B981),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     );
                                   }).toList(),
                                   onChanged: _selectedShopName == null ||
@@ -1414,14 +1476,76 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                                           fontSize: 15,
                                                         ),
                                                       ),
-                                                      subtitle: Text(
-                                                        '${product.price.toStringAsFixed(0)} ₮',
-                                                        style: const TextStyle(
-                                                          color:
-                                                              Color(0xFF059669),
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                        ),
+                                                      subtitle: Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment.start,
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          Text(
+                                                            '${product.price.toStringAsFixed(0)} ₮',
+                                                            style: const TextStyle(
+                                                              color:
+                                                                  Color(0xFF059669),
+                                                              fontWeight:
+                                                                  FontWeight.w600,
+                                                            ),
+                                                          ),
+                                                          if (isSelected) ...[
+                                                            const SizedBox(
+                                                                height: 8),
+                                                            Row(
+                                                              children: [
+                                                                Text(
+                                                                  'Авах тоо: ',
+                                                                  style: TextStyle(
+                                                                    fontSize: 13,
+                                                                    color: Colors.grey[700],
+                                                                    fontWeight: FontWeight.w500,
+                                                                  ),
+                                                                ),
+                                                                SizedBox(
+                                                                  width: 72,
+                                                                  height: 36,
+                                                                  child: TextFormField(
+                                                                    key: ValueKey('qty_${product.id}'),
+                                                                    initialValue: quantity.toString(),
+                                                                    keyboardType: TextInputType.number,
+                                                                    inputFormatters: [
+                                                                      FilteringTextInputFormatter.digitsOnly,
+                                                                    ],
+                                                                    decoration: InputDecoration(
+                                                                      isDense: true,
+                                                                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                                                      border: OutlineInputBorder(
+                                                                        borderRadius: BorderRadius.circular(8),
+                                                                      ),
+                                                                      filled: true,
+                                                                      fillColor: Colors.white,
+                                                                      hintText: '0',
+                                                                    ),
+                                                                    onChanged: (v) {
+                                                                      setState(() {
+                                                                        final n = int.tryParse(v);
+                                                                        if (n != null && n > 0) {
+                                                                          _productQuantities[product.id] = n;
+                                                                        }
+                                                                      });
+                                                                    },
+                                                                  ),
+                                                                ),
+                                                                const SizedBox(width: 4),
+                                                                Text(
+                                                                  'ширхэг',
+                                                                  style: TextStyle(
+                                                                    fontSize: 12,
+                                                                    color: Colors.grey[600],
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ],
+                                                        ],
                                                       ),
                                                     ),
                                                   );
