@@ -564,10 +564,8 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       await salesProvider.addSale(sale);
     }
 
-    // Push order to Weve site (mock for now)
+    // Push order to warehouse backend (real API call, not mock)
     await _pushOrderToWeve(paymentMethod);
-
-    // Read-only mode: do NOT send sales/orders to Warehouse web backend.
   }
 
   Future<void> _sendToEbarimt(String paymentMethod) async {

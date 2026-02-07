@@ -7,6 +7,8 @@ import '../../providers/mobileUserLogin.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/location_provider.dart';
 import '../../providers/warehouse_provider.dart';
+import '../../providers/shop_provider.dart';
+import '../../providers/product_provider.dart';
 import '../../widgets/hamburger_menu.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -122,17 +124,27 @@ class _LoginScreenState extends State<LoginScreen> {
         // (shared WarehouseWebBridge — no double login API call needed)
         try {
           final warehouseProvider = Provider.of<WarehouseProvider>(context, listen: false);
+          final shopProvider = Provider.of<ShopProvider>(context, listen: false);
+          final productProvider = Provider.of<ProductProvider>(context, listen: false);
+
           await warehouseProvider.connectWithExistingToken(
             authProvider: authProvider,
           );
           
-          // Fetch products and shops from warehouse
+          // Fetch products and shops from warehouse backend
+          // Backend returns only the shops assigned to the logged-in user (no mock data)
           await warehouseProvider.refreshProducts();
           await warehouseProvider.refreshShops(authProvider: authProvider);
+
+          // Sync to ShopProvider & ProductProvider so all screens see real data
+          shopProvider.setShops(warehouseProvider.shops);
+          productProvider.setProducts(warehouseProvider.products);
           
           if (kDebugMode) {
             debugPrint('✅ WarehouseProvider connected with mobile user token');
             debugPrint('   Mobile user ID: ${loginProvider.user?.id}');
+            debugPrint('   Shops (бүртгэлтэй дэлгүүр): ${warehouseProvider.shops.length}');
+            debugPrint('   Products: ${warehouseProvider.products.length}');
           }
         } catch (e) {
           // Continue even if warehouse connection fails
