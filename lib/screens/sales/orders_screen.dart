@@ -2,11 +2,35 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/order_provider.dart';
+import '../../providers/warehouse_provider.dart';
 import '../../widgets/hamburger_menu.dart';
 import '../../widgets/bottom_navigation.dart';
 
-class OrdersScreen extends StatelessWidget {
+class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
+
+  @override
+  State<OrdersScreen> createState() => _OrdersScreenState();
+}
+
+class _OrdersScreenState extends State<OrdersScreen> {
+  void _refreshOrders() {
+    final warehouseProvider =
+        Provider.of<WarehouseProvider>(context, listen: false);
+    if (warehouseProvider.connected) {
+      Provider.of<OrderProvider>(context, listen: false)
+          .fetchOrders(warehouseProvider.dio);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Fetch orders from backend when screen loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshOrders();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,6 +49,10 @@ class OrdersScreen extends StatelessWidget {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _refreshOrders,
+          ),
+          IconButton(
             icon: const Icon(Icons.arrow_back_ios_rounded),
             onPressed: () => context.go('/sales-dashboard'),
           ),
@@ -34,6 +62,35 @@ class OrdersScreen extends StatelessWidget {
       bottomNavigationBar: const BottomNavigationWidget(),
       body: Consumer<OrderProvider>(
         builder: (context, orderProvider, child) {
+          if (orderProvider.isLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (orderProvider.error != null) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                    const SizedBox(height: 16),
+                    Text(
+                      orderProvider.error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _refreshOrders,
+                      child: const Text('Дахин оролдох'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
           return SingleChildScrollView(
             padding: const EdgeInsets.all(20),
             child: Column(

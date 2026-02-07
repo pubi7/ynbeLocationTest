@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/order_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/product_provider.dart';
+import '../../providers/warehouse_provider.dart';
 import '../../models/order_model.dart';
 import '../../models/product_model.dart';
 import '../../services/pos_receipt_service.dart';
@@ -77,35 +79,114 @@ class _OrderScreenState extends State<OrderScreen> {
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final orderProvider = Provider.of<OrderProvider>(context, listen: false);
+    final warehouseProvider =
+        Provider.of<WarehouseProvider>(context, listen: false);
 
-    final order = Order(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      customerName: _customerNameController.text.trim(),
-      customerPhone: _customerPhoneController.text.trim(),
-      customerAddress: _customerAddressController.text.trim(),
-      items: List.from(_orderItems),
-      totalAmount: _totalAmount,
-      status: 'pending',
-      orderDate: DateTime.now(),
-      notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
-      salespersonId: authProvider.user?.id ?? '',
-      salespersonName: authProvider.user?.name ?? '',
-    );
+    try {
+      // Send order to warehouse backend so it shows on web site
+      if (warehouseProvider.connected) {
+        final items = _orderItems.map((item) {
+          final productId = int.tryParse(item.productId);
+          if (productId == null) {
+            throw Exception('Барааны ID буруу байна: ${item.productId}');
+          }
+          return {
+            'productId': productId,
+            'quantity': item.quantity,
+          };
+        }).toList();
 
-    await orderProvider.addOrder(order);
+        // Find customer ID from name (use first matching shop/customer)
+        final shops = warehouseProvider.shops;
+        final matchingShop = shops.isNotEmpty
+            ? shops.firstWhere(
+                (s) =>
+                    s.name.toLowerCase() ==
+                    _customerNameController.text.trim().toLowerCase(),
+                orElse: () => shops.first,
+              )
+            : null;
 
-    setState(() {
-      _isLoading = false;
-    });
+        if (matchingShop != null) {
+          final customerId = int.tryParse(matchingShop.id);
+          if (customerId != null) {
+            if (kDebugMode) {
+              debugPrint('📤 Warehouse backend руу захиалга илгээж байна...');
+              debugPrint('   • Дэлгүүр ID: $customerId');
+              debugPrint('   • Барааны тоо: ${items.length}');
+            }
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Захиалга амжилттай үүсгэлээ!'),
-          backgroundColor: Colors.green,
-        ),
+            final result = await warehouseProvider.createOrder(
+              customerId: customerId,
+              items: items,
+              orderType: 'Store',
+              paymentMethod: 'Cash',
+            );
+
+            if (kDebugMode) {
+              debugPrint('✅ Захиалга амжилттай илгээгдлээ!');
+              debugPrint('   • Order ID: ${result['order']?['id']}');
+              debugPrint(
+                  '🌐 Захиалга web dashboard дээр харагдаж байна!');
+            }
+          }
+        }
+      }
+
+      // Also add to local order list
+      final order = Order(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        customerName: _customerNameController.text.trim(),
+        customerPhone: _customerPhoneController.text.trim(),
+        customerAddress: _customerAddressController.text.trim(),
+        items: List.from(_orderItems),
+        totalAmount: _totalAmount,
+        status: 'pending',
+        orderDate: DateTime.now(),
+        notes: _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim(),
+        salespersonId: authProvider.user?.id ?? '',
+        salespersonName: authProvider.user?.name ?? '',
       );
-      context.go('/sales-dashboard');
+
+      await orderProvider.addOrder(order);
+
+      // Refresh orders from backend to keep in sync
+      if (warehouseProvider.connected) {
+        await orderProvider.fetchOrders(warehouseProvider.dio);
+      }
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Захиалга амжилттай үүсгэлээ!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        context.go('/sales-dashboard');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('❌ Захиалга илгээхэд алдаа гарлаа: $e');
+      }
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Захиалга илгээхэд алдаа: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 

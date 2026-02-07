@@ -61,17 +61,16 @@ class ApiConfig {
     if (_backendServerUrlOverride.isNotEmpty)
       return _trimTrailingSlash(_backendServerUrlOverride);
 
-    // Default to your LOCAL docker backend published on host port 3000.
-    // If you run on Android Emulator, use:
-    //   --dart-define=BACKEND_SERVER_URL=http://10.0.2.2:3000
-    // If you run on a physical phone, use your PC LAN IP:
-    //   --dart-define=BACKEND_SERVER_URL=http://192.168.x.x:3000
-    // If you run on iOS simulator, localhost works:
-    //   --dart-define=BACKEND_SERVER_URL=http://localhost:3000
-    // Android emulator: localhost points to the emulator itself, so use 10.0.2.2 (host loopback).
-    // NOTE: This does NOT work for a physical phone; for phones use your PC LAN IP via --dart-define.
-    // For Flutter Web and all platforms in development, use localhost:3000
-    return 'http://localhost:3000';
+    // Warehouse backend (warehouse-service-main) runs on port 3000
+    // Flutter Web: localhost works
+    // Android Emulator: 10.0.2.2 (host loopback)
+    // Physical Phone: Use PC LAN IP (192.168.1.6)
+    // iOS Simulator: localhost works
+    if (PlatformInfo.isWeb) {
+      return 'http://localhost:3000';
+    }
+    // Mobile devices - use LAN IP
+    return 'http://192.168.1.6:3000';
   }
 
   // Warehouse API Base URL

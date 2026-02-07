@@ -27,10 +27,14 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+flutter {
+    source '../..'
+}
+
 android {
     namespace "com.example.aguulgav3"
-    compileSdkVersion flutter.compileSdkVersion
-    ndkVersion flutter.ndkVersion
+    compileSdk 36
+    ndkVersion "27.0.12077973"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
@@ -47,10 +51,11 @@ android {
 
     defaultConfig {
         applicationId "com.example.aguulgav3"
-        minSdkVersion flutter.minSdkVersion
-        targetSdkVersion flutter.targetSdkVersion
+        minSdkVersion flutter.minSdkVersion  // Android 5.0+ (ensures compatibility with most phones)
+        targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+        multiDexEnabled true  // Support for larger apps
     }
 
     buildTypes {
@@ -60,7 +65,7 @@ android {
     }
 }
 
-flutter {
-    source '../..'
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.1.0"
 }
 

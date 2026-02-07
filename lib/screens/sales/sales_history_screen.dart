@@ -2,11 +2,93 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/sales_provider.dart';
+import '../../providers/warehouse_provider.dart';
+import '../../providers/product_provider.dart';
+import '../../models/product_model.dart';
 import '../../widgets/hamburger_menu.dart';
 import '../../widgets/bottom_navigation.dart';
 
-class SalesHistoryScreen extends StatelessWidget {
+class SalesHistoryScreen extends StatefulWidget {
   const SalesHistoryScreen({super.key});
+
+  @override
+  State<SalesHistoryScreen> createState() => _SalesHistoryScreenState();
+}
+
+class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
+  List<Product> _productsForSale = [];
+  List<Product> _allProductsForSale = []; // All products (for filtering)
+  bool _isLoadingProducts = false;
+  final _productSearchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadProductsForSale());
+  }
+
+  @override
+  void dispose() {
+    _productSearchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProductsForSale() async {
+    final warehouseProvider = Provider.of<WarehouseProvider>(context, listen: false);
+    final productProvider = Provider.of<ProductProvider>(context, listen: false);
+
+    if (!warehouseProvider.connected) {
+      if (!mounted) return;
+      final localProducts = productProvider.products
+          .where((p) => p.price > 0 && (p.stockQuantity ?? 0) > 0)
+          .toList();
+      setState(() {
+        _allProductsForSale = localProducts;
+        _productsForSale = _filterProducts(localProducts);
+        _isLoadingProducts = false;
+      });
+      return;
+    }
+
+    setState(() => _isLoadingProducts = true);
+    try {
+      final products = await warehouseProvider.getProductsForSale(
+        hasStock: true,
+        hasPrice: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        _allProductsForSale = products;
+        _productsForSale = _filterProducts(products);
+        _isLoadingProducts = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      final localProducts = productProvider.products
+          .where((p) => p.price > 0 && (p.stockQuantity ?? 0) > 0)
+          .toList();
+      setState(() {
+        _allProductsForSale = localProducts;
+        _productsForSale = _filterProducts(localProducts);
+        _isLoadingProducts = false;
+      });
+    }
+  }
+
+  List<Product> _filterProducts(List<Product> products) {
+    final query = _productSearchController.text.toLowerCase().trim();
+    if (query.isEmpty) {
+      return products;
+    }
+    return products.where((product) {
+      final name = product.name.toLowerCase();
+      final barcode = (product.barcode ?? '').toLowerCase();
+      final productCode = (product.productCode ?? '').toLowerCase();
+      return name.contains(query) || 
+             barcode.contains(query) || 
+             productCode.contains(query);
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -133,6 +215,187 @@ class SalesHistoryScreen extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 24),
+
+                // Зарагдах бараа (Products for Sale)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.shopping_bag_rounded, color: Color(0xFF6366F1), size: 24),
+                          const SizedBox(width: 12),
+                          const Text(
+                            'Зарагдах бараа',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1E293B),
+                            ),
+                          ),
+                          const Spacer(),
+                          if (_isLoadingProducts)
+                            const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Бараа хайх талбар
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.grey[300]!, width: 1),
+                        ),
+                        child: TextField(
+                          controller: _productSearchController,
+                          decoration: InputDecoration(
+                            labelText: '🔍 Бараа хайх',
+                            hintText: 'Барааны нэр, баркод эсвэл SKU',
+                            prefixIcon: const Icon(Icons.search, size: 24, color: Color(0xFF6366F1)),
+                            suffixIcon: _productSearchController.text.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear, size: 20),
+                                    onPressed: () {
+                                      setState(() {
+                                        _productSearchController.clear();
+                                        _productsForSale = _filterProducts(_allProductsForSale);
+                                      });
+                                    },
+                                  )
+                                : null,
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF6366F1), width: 2),
+                            ),
+                          ),
+                          style: const TextStyle(fontSize: 16),
+                          onChanged: (value) {
+                            setState(() {
+                              _productsForSale = _filterProducts(_allProductsForSale);
+                            });
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      if (_productsForSale.isEmpty && !_isLoadingProducts)
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Center(
+                            child: Column(
+                              children: [
+                                Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
+                                const SizedBox(height: 12),
+                                Text(
+                                  _productSearchController.text.isNotEmpty
+                                      ? 'Хайлтад тохирох бараа олдсонгүй'
+                                      : 'Зарагдах бараа олдсонгүй',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        ...(_productsForSale.map((product) {
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey.shade200),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        product.name,
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            '${product.price.toStringAsFixed(0)} ₮',
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF10B981),
+                                            ),
+                                          ),
+                                          if (product.stockQuantity != null) ...[
+                                            const SizedBox(width: 12),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: product.stockQuantity! > 10
+                                                    ? const Color(0xFFECFDF5)
+                                                    : const Color(0xFFFEF3C7),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                'Үлдэгдэл: ${product.stockQuantity}',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: product.stockQuantity! > 10
+                                                      ? const Color(0xFF059669)
+                                                      : const Color(0xFFD97706),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList()),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 24),
 

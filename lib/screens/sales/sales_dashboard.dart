@@ -5,10 +5,13 @@ import '../../providers/auth_provider.dart';
 import '../../providers/mobileUserLogin.dart';
 import '../../providers/sales_provider.dart';
 import '../../providers/order_provider.dart';
+import '../../providers/warehouse_provider.dart';
+import '../../providers/product_provider.dart';
 import '../../models/sales_model.dart';
 import '../../widgets/bottom_navigation.dart';
 import '../../widgets/hamburger_menu.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart' as intl;
 
 class SalesDashboard extends StatefulWidget {
   const SalesDashboard({super.key});
@@ -20,13 +23,38 @@ class SalesDashboard extends StatefulWidget {
 class _SalesDashboardState extends State<SalesDashboard> {
   late DateTime _selectedDate;
   static const _dailyTargetKey = 'sales_daily_target';
+  static const _monthlyTargetKey = 'sales_monthly_target';
   double _dailyTarget = 1000000;
+  double _monthlyTarget = 30000000; // Default 30M ₮
+  bool _isLoadingMonthlyTarget = false;
+  List<dynamic> _productsForSale = [];
+  List<dynamic> _allProductsForSale = []; // All products (for filtering)
+  bool _isLoadingProducts = false;
+  final _productSearchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _selectedDate = DateUtils.dateOnly(DateTime.now());
     _loadTargets();
+    _loadMonthlyTarget();
+    _loadProductsForSale();
+    _loadOrders();
+  }
+
+  Future<void> _loadOrders() async {
+    final warehouseProvider =
+        Provider.of<WarehouseProvider>(context, listen: false);
+    if (warehouseProvider.connected) {
+      Provider.of<OrderProvider>(context, listen: false)
+          .fetchOrders(warehouseProvider.dio);
+    }
+  }
+
+  @override
+  void dispose() {
+    _productSearchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadTargets() async {
@@ -36,6 +64,111 @@ class _SalesDashboardState extends State<SalesDashboard> {
     setState(() {
       _dailyTarget = d ?? _dailyTarget;
     });
+  }
+
+  Future<void> _loadMonthlyTarget() async {
+    final warehouseProvider = Provider.of<WarehouseProvider>(context, listen: false);
+    if (!warehouseProvider.connected) {
+      // Fallback to local storage
+      final prefs = await SharedPreferences.getInstance();
+      final m = prefs.getDouble(_monthlyTargetKey);
+      if (!mounted) return;
+      setState(() {
+        _monthlyTarget = m ?? _monthlyTarget;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoadingMonthlyTarget = true;
+    });
+
+    try {
+      final now = DateTime.now();
+      final targetData = await warehouseProvider.getMonthlyTarget(
+        year: now.year,
+        month: now.month,
+      );
+      if (!mounted) return;
+      setState(() {
+        _monthlyTarget = (targetData['monthlyTarget'] as num?)?.toDouble() ?? _monthlyTarget;
+        _isLoadingMonthlyTarget = false;
+      });
+      
+      // Save to local storage as backup
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_monthlyTargetKey, _monthlyTarget);
+    } catch (e) {
+      if (!mounted) return;
+      // Fallback to local storage
+      final prefs = await SharedPreferences.getInstance();
+      final m = prefs.getDouble(_monthlyTargetKey);
+      setState(() {
+        _monthlyTarget = m ?? _monthlyTarget;
+        _isLoadingMonthlyTarget = false;
+      });
+    }
+  }
+
+  Future<void> _loadProductsForSale() async {
+    final warehouseProvider = Provider.of<WarehouseProvider>(context, listen: false);
+    final productProvider = Provider.of<ProductProvider>(context, listen: false);
+    
+    if (!warehouseProvider.connected) {
+      // Use local products
+      if (!mounted) return;
+      setState(() {
+        _productsForSale = productProvider.products
+            .where((p) => p.price > 0 && (p.stockQuantity ?? 0) > 0)
+            .take(10)
+            .toList();
+        _isLoadingProducts = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoadingProducts = true;
+    });
+
+    try {
+      final products = await warehouseProvider.getProductsForSale(
+        hasStock: true,
+        hasPrice: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        _allProductsForSale = products;
+        _productsForSale = _filterProducts(products);
+        _isLoadingProducts = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      // Fallback to local products
+      final localProducts = productProvider.products
+          .where((p) => p.price > 0 && (p.stockQuantity ?? 0) > 0)
+          .toList();
+      setState(() {
+        _allProductsForSale = localProducts;
+        _productsForSale = _filterProducts(localProducts);
+        _isLoadingProducts = false;
+      });
+    }
+  }
+
+  List<dynamic> _filterProducts(List<dynamic> products) {
+    final query = _productSearchController.text.toLowerCase().trim();
+    if (query.isEmpty) {
+      return products.take(10).toList(); // Show top 10 when no search
+    }
+    return products.where((product) {
+      final name = product.name?.toLowerCase() ?? '';
+      final barcode = (product.barcode ?? '').toLowerCase();
+      final productCode = (product.productCode ?? '').toLowerCase();
+      return name.contains(query) || 
+             barcode.contains(query) || 
+             productCode.contains(query);
+    }).toList();
   }
 
   Future<void> _pickDate() async {
@@ -450,7 +583,359 @@ class _SalesDashboardState extends State<SalesDashboard> {
                   ),
                 ),
 
-                // Monthly progress removed; only today % badge shown in header.
+                // Monthly Plan Section
+                if (role != 'order')
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Consumer<SalesProvider>(
+                      builder: (context, salesProvider, _) {
+                        final now = DateTime.now();
+                        final monthStart = DateTime(now.year, now.month, 1);
+                        final monthEnd = DateTime(now.year, now.month + 1, 1);
+                        final monthlySales = salesProvider.getTotalSalesForRange(monthStart, monthEnd);
+                        final monthlyProgress = _monthlyTarget <= 0 ? 0.0 : (monthlySales / _monthlyTarget).clamp(0.0, 1.0);
+                        final monthlyProgressPercent = (monthlyProgress * 100).toStringAsFixed(1);
+                        
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 20),
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.calendar_month_rounded, color: Color(0xFF6366F1), size: 24),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    '${intl.DateFormat('yyyy-MMMM', 'mn_MN').format(now)} сарын төлөвлөгөө',
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF1E293B),
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  if (_isLoadingMonthlyTarget)
+                                    const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
+                                  else
+                                    Text(
+                                      '${_monthlyTarget.toStringAsFixed(0)} ₮',
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF6366F1),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Одоогийн борлуулалт',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${monthlySales.toStringAsFixed(0)} ₮',
+                                        style: const TextStyle(
+                                          fontSize: 24,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF10B981),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      const Text(
+                                        'Гүйцэтгэл',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '$monthlyProgressPercent%',
+                                        style: TextStyle(
+                                          fontSize: 24,
+                                          fontWeight: FontWeight.bold,
+                                          color: monthlyProgress >= 1.0 
+                                              ? const Color(0xFF10B981)
+                                              : monthlyProgress >= 0.7
+                                                  ? const Color(0xFFF59E0B)
+                                                  : const Color(0xFFEF4444),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: LinearProgressIndicator(
+                                  value: monthlyProgress,
+                                  minHeight: 12,
+                                  backgroundColor: Colors.grey.shade200,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    monthlyProgress >= 1.0 
+                                        ? const Color(0xFF10B981)
+                                        : monthlyProgress >= 0.7
+                                            ? const Color(0xFFF59E0B)
+                                            : const Color(0xFFEF4444),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                // Products for Sale Section
+                if (role != 'order')
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 20),
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.shopping_bag_rounded, color: Color(0xFF6366F1), size: 24),
+                              const SizedBox(width: 12),
+                              const Text(
+                                'Зарагдах бараа',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF1E293B),
+                                ),
+                              ),
+                              const Spacer(),
+                              if (_isLoadingProducts)
+                                const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          // Бараа хайх талбар
+                          Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.grey[300]!, width: 1),
+                            ),
+                            child: TextField(
+                              controller: _productSearchController,
+                              decoration: InputDecoration(
+                                labelText: '🔍 Бараа хайх',
+                                hintText: 'Барааны нэр, баркод эсвэл SKU',
+                                prefixIcon: const Icon(Icons.search, size: 24, color: Color(0xFF6366F1)),
+                                suffixIcon: _productSearchController.text.isNotEmpty
+                                    ? IconButton(
+                                        icon: const Icon(Icons.clear, size: 20),
+                                        onPressed: () {
+                                          setState(() {
+                                            _productSearchController.clear();
+                                            _productsForSale = _filterProducts(_allProductsForSale);
+                                          });
+                                        },
+                                      )
+                                    : null,
+                                filled: true,
+                                fillColor: Colors.white,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(color: Color(0xFF6366F1), width: 2),
+                                ),
+                              ),
+                              style: const TextStyle(fontSize: 16),
+                              onChanged: (value) {
+                                setState(() {
+                                  _productsForSale = _filterProducts(_allProductsForSale);
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          if (_productsForSale.isEmpty && !_isLoadingProducts)
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Center(
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      _productSearchController.text.isNotEmpty
+                                          ? 'Хайлтад тохирох бараа олдсонгүй'
+                                          : 'Зарагдах бараа олдсонгүй',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          else
+                            ...(_productsForSale.map((product) {
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.grey.shade200),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            product.name,
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              Text(
+                                                '${product.price.toStringAsFixed(0)} ₮',
+                                                style: const TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Color(0xFF10B981),
+                                                ),
+                                              ),
+                                              if (product.stockQuantity != null) ...[
+                                                const SizedBox(width: 12),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: product.stockQuantity! > 10 
+                                                        ? const Color(0xFFECFDF5)
+                                                        : const Color(0xFFFEF3C7),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    'Үлдэгдэл: ${product.stockQuantity}',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.w600,
+                                                      color: product.stockQuantity! > 10
+                                                          ? const Color(0xFF059669)
+                                                          : const Color(0xFFD97706),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList()),
+                          if (_allProductsForSale.length > _productsForSale.length && _productSearchController.text.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Center(
+                                child: TextButton(
+                                  onPressed: () {
+                                    // Show all products
+                                    setState(() {
+                                      _productsForSale = _allProductsForSale;
+                                    });
+                                  },
+                                  child: Text(
+                                    '${_allProductsForSale.length - _productsForSale.length} бараа илүү харах',
+                                    style: const TextStyle(
+                                      color: Color(0xFF6366F1),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          if (_productSearchController.text.isNotEmpty && _productsForSale.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Center(
+                                child: Text(
+                                  '${_productsForSale.length} бараа олдлоо',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
 
                 // Orders list - Show ALL orders
                 if (role == 'order')

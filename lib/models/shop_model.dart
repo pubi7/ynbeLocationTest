@@ -10,6 +10,8 @@ class Shop {
   final String phone;
   final String? email;
   final String? registrationNumber; // Бүртгэлийн дугаар
+  /// Худалдан авалтын дээд хэмжээ (₮). null бол тохируулаагүй гэж үзнэ.
+  final double? maxPurchaseAmount;
   final String status; // 'active', 'inactive'
   final List<Order> orders;
   final List<Sales> sales;
@@ -24,6 +26,7 @@ class Shop {
     required this.phone,
     this.email,
     this.registrationNumber,
+    this.maxPurchaseAmount,
     required this.status,
     required this.orders,
     required this.sales,
@@ -40,6 +43,7 @@ class Shop {
       phone: json['phone'],
       email: json['email'],
       registrationNumber: json['registrationNumber'],
+      maxPurchaseAmount: (json['maxPurchaseAmount'] as num?)?.toDouble(),
       status: json['status'],
       orders: (json['orders'] as List)
           .map((order) => Order.fromJson(order))
@@ -61,6 +65,7 @@ class Shop {
       'phone': phone,
       'email': email,
       'registrationNumber': registrationNumber,
+      'maxPurchaseAmount': maxPurchaseAmount,
       'status': status,
       'orders': orders.map((order) => order.toJson()).toList(),
       'sales': sales.map((sale) => sale.toJson()).toList(),

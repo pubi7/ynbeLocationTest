@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/warehouse_web_bridge.dart';
 import '../models/user_model.dart';
 import 'auth_provider.dart';
@@ -199,6 +200,20 @@ class MobileUserLoginProvider extends ChangeNotifier {
           companyId: userData['store']?['id']?.toString(),
           createdAt: DateTime.now(),
         );
+
+        // Extract and save agent ID if available
+        final agentId = userData['agentId'] ?? userData['id'];
+        if (agentId != null) {
+          final agentIdInt = (agentId is num)
+              ? agentId.toInt()
+              : int.tryParse(agentId.toString());
+          if (agentIdInt != null) {
+            // Save to SharedPreferences for LocationProvider
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setInt('agent_id', agentIdInt);
+            debugPrint('✅ Agent ID хадгалагдлаа: $agentIdInt');
+          }
+        }
 
         // Update AuthProvider if provided
         if (authProvider != null) {

@@ -37,8 +37,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const _warehouseApiBaseUrlKey = 'warehouse_api_base_url';
   final _warehouseApiBaseUrlController = TextEditingController(
       text: PlatformInfo.isAndroid
-          ? 'http://10.0.2.2:3000'
-          : 'http://localhost:3000');
+          ? 'http://192.168.1.6:3000' // Use PC IP for physical devices
+          : 'http://192.168.1.6:3000'); // Use PC IP instead of localhost
   final _warehouseEmailController =
       TextEditingController(text: 'agent@oasis.mn');
   final _warehousePasswordController = TextEditingController(text: 'agent123');
@@ -55,9 +55,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _refreshProfileIfConnected() async {
-    final warehouseProvider = Provider.of<WarehouseProvider>(context, listen: false);
+    final warehouseProvider =
+        Provider.of<WarehouseProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    
+
     if (warehouseProvider.connected) {
       try {
         await warehouseProvider.refreshProfile(authProvider);
@@ -214,7 +215,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Consumer3<WarehouseProvider, ProductProvider, ShopProvider>(
                   builder: (context, warehouseProvider, productProvider,
                       shopProvider, _) {
-                    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                    final authProvider =
+                        Provider.of<AuthProvider>(context, listen: false);
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -333,21 +335,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                               authProvider: authProvider,
                                             );
                                             if (ok) {
+                                              // Add delays between requests to prevent rate limiting
                                               // Refresh profile after successful connection
                                               try {
-                                                await warehouseProvider.refreshProfile(authProvider);
+                                                await Future.delayed(
+                                                    const Duration(
+                                                        milliseconds: 500));
+                                                await warehouseProvider
+                                                    .refreshProfile(
+                                                        authProvider);
                                               } catch (e) {
-                                                debugPrint('Failed to refresh profile: $e');
+                                                debugPrint(
+                                                    'Failed to refresh profile: $e');
                                               }
-                                              
-                                              await warehouseProvider
-                                                  .refreshProducts();
-                                              await warehouseProvider
-                                                  .refreshShops(authProvider: authProvider);
+
+                                              // Add delay before fetching products
+                                              await Future.delayed(
+                                                  const Duration(
+                                                      milliseconds: 500));
+                                              try {
+                                                await warehouseProvider
+                                                    .refreshProducts();
+                                              } catch (e) {
+                                                debugPrint(
+                                                    'Failed to refresh products: $e');
+                                              }
+
+                                              // Update products immediately after refresh
                                               productProvider.setProducts(
                                                   warehouseProvider.products);
-                                              shopProvider.setShops(
-                                                  warehouseProvider.shops);
+                                              debugPrint(
+                                                  '✅ Products synced: ${warehouseProvider.products.length}');
+
+                                              // Add delay before fetching shops
+                                              await Future.delayed(
+                                                  const Duration(
+                                                      milliseconds: 500));
+                                              try {
+                                                await warehouseProvider
+                                                    .refreshShops(
+                                                        authProvider:
+                                                            authProvider);
+                                                // Update shops immediately after refresh
+                                                shopProvider.setShops(
+                                                    warehouseProvider.shops);
+                                                debugPrint(
+                                                    '✅ Shops synced: ${warehouseProvider.shops.length}');
+                                              } catch (e) {
+                                                debugPrint(
+                                                    '❌ Failed to refresh shops: $e');
+                                                // Still update with whatever we have
+                                                shopProvider.setShops(
+                                                    warehouseProvider.shops);
+                                              }
                                             }
                                           },
                                     child: warehouseProvider.isLoading
@@ -367,13 +407,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 onPressed: warehouseProvider.isLoading
                                     ? null
                                     : () async {
-                                        await warehouseProvider
-                                            .refreshProducts();
-                                        await warehouseProvider.refreshShops(authProvider: authProvider);
-                                        productProvider.setProducts(
-                                            warehouseProvider.products);
-                                        shopProvider
-                                            .setShops(warehouseProvider.shops);
+                                        // Refresh products first
+                                        try {
+                                          await warehouseProvider
+                                              .refreshProducts();
+                                          // Update products immediately after refresh
+                                          productProvider.setProducts(
+                                              warehouseProvider.products);
+                                          debugPrint(
+                                              '✅ Products synced: ${warehouseProvider.products.length}');
+                                        } catch (e) {
+                                          debugPrint(
+                                              '❌ Failed to refresh products: $e');
+                                          // Still update with whatever we have
+                                          productProvider.setProducts(
+                                              warehouseProvider.products);
+                                        }
+
+                                        // Add delay before fetching shops to prevent rate limiting
+                                        await Future.delayed(
+                                            const Duration(milliseconds: 500));
+
+                                        // Refresh shops second
+                                        try {
+                                          await warehouseProvider.refreshShops(
+                                              authProvider: authProvider);
+                                          // Update shops immediately after refresh
+                                          shopProvider.setShops(
+                                              warehouseProvider.shops);
+                                          debugPrint(
+                                              '✅ Shops synced: ${warehouseProvider.shops.length}');
+                                        } catch (e) {
+                                          debugPrint(
+                                              '❌ Failed to refresh shops: $e');
+                                          // Still update with whatever we have
+                                          shopProvider.setShops(
+                                              warehouseProvider.shops);
+                                        }
                                       },
                                 child: warehouseProvider.isLoading
                                     ? const Text('Syncing...')
@@ -672,7 +742,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // Get display name - prefer displayName from backend, fallback to name
         final displayName = authProvider.user?.name ?? 'User';
         final roleDisplay = (authProvider.user?.role ?? 'user').toUpperCase();
-        
+
         return ListTile(
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -700,7 +770,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   fontSize: 14,
                 ),
               ),
-              if (warehouseProvider.connected && authProvider.user?.email != null)
+              if (warehouseProvider.connected &&
+                  authProvider.user?.email != null)
                 Text(
                   authProvider.user!.email!,
                   style: TextStyle(
@@ -879,8 +950,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
-              final loginProvider = Provider.of<MobileUserLoginProvider>(context, listen: false);
-              final authProvider = Provider.of<AuthProvider>(context, listen: false);
+              final loginProvider =
+                  Provider.of<MobileUserLoginProvider>(context, listen: false);
+              final authProvider =
+                  Provider.of<AuthProvider>(context, listen: false);
               await loginProvider.logout();
               await authProvider.logout();
               if (context.mounted) {

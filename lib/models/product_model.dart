@@ -2,6 +2,12 @@ class Product {
   final String id;
   final String name;
   final double price;
+
+  /// Discount percent from Weve/backend (0-100). If null, no discount.
+  final int? discountPercent;
+
+  /// Promotion/campaign text from Weve/backend.
+  final String? promotionText;
   final String? description;
   final String? category;
   final String? barcode;
@@ -14,11 +20,14 @@ class Product {
   final double? priceRetail;
   final double? pricePerBox;
   final String? supplierName;
+  final bool? isActive; // Product active status from backend
 
   Product({
     required this.id,
     required this.name,
     required this.price,
+    this.discountPercent,
+    this.promotionText,
     this.description,
     this.category,
     this.barcode,
@@ -31,6 +40,7 @@ class Product {
     this.priceRetail,
     this.pricePerBox,
     this.supplierName,
+    this.isActive,
   });
 
   factory Product.fromJson(Map<String, dynamic> json) {
@@ -38,6 +48,8 @@ class Product {
       id: json['id'],
       name: json['name'],
       price: json['price'].toDouble(),
+      discountPercent: (json['discountPercent'] as num?)?.toInt(),
+      promotionText: json['promotionText']?.toString(),
       description: json['description'],
       category: json['category'],
       barcode: json['barcode'],
@@ -50,6 +62,8 @@ class Product {
       priceRetail: (json['priceRetail'] as num?)?.toDouble(),
       pricePerBox: (json['pricePerBox'] as num?)?.toDouble(),
       supplierName: json['supplierName'],
+      isActive:
+          json['isActive'] as bool? ?? true, // Default to true if not provided
     );
   }
 
@@ -58,6 +72,8 @@ class Product {
       'id': id,
       'name': name,
       'price': price,
+      'discountPercent': discountPercent,
+      'promotionText': promotionText,
       'description': description,
       'category': category,
       'barcode': barcode,
@@ -70,7 +86,7 @@ class Product {
       'priceRetail': priceRetail,
       'pricePerBox': pricePerBox,
       'supplierName': supplierName,
+      'isActive': isActive,
     };
   }
 }
-

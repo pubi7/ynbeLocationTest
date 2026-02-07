@@ -350,46 +350,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: 24),
 
 
-                          const SizedBox(height: 32),
-
-                          // Demo Credentials
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: const Color(0xFFE2E8F0),
-                                width: 1,
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.info_outline,
-                                      size: 20,
-                                      color: const Color(0xFF6366F1),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Demo Credentials',
-                                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                        color: const Color(0xFF6366F1),
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                _buildDemoCredential('Sales Account', 'sales@company.com', 'sales123'),
-                                const SizedBox(height: 8),
-                                _buildDemoCredential('Order Account', 'order@company.com', 'order123'),
-                              ],
-                            ),
-                          ),
                         ],
                       ),
                     ),
@@ -403,39 +363,4 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildDemoCredential(String role, String email, String password) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            role,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF475569),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            email,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: const Color(0xFF64748B),
-            ),
-          ),
-          Text(
-            password,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: const Color(0xFF64748B),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

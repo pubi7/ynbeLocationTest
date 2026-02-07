@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 import 'providers/auth_provider.dart';
 import 'providers/mobileUserLogin.dart';
@@ -13,7 +14,10 @@ import 'utils/app_router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  // Intl (month/day names) for mn_MN DateFormat usage
+  await initializeDateFormatting('mn_MN', null);
+
   runApp(const MyApp());
 }
 
@@ -37,6 +41,18 @@ class MyApp extends StatelessWidget {
         builder: (context, authProvider, _) {
           return MaterialApp.router(
             title: 'Aguulga Business App',
+            // Mobile optimizations
+            builder: (context, child) {
+              return MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: MediaQuery.of(context).textScaler.clamp(
+                        minScaleFactor: 0.8,
+                        maxScaleFactor: 1.2,
+                      ), // Allow text scaling for accessibility
+                ),
+                child: child!,
+              );
+            },
             theme: ThemeData(
               useMaterial3: true,
               colorScheme: ColorScheme.fromSeed(
@@ -72,18 +88,20 @@ class MyApp extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
                 ),
               ),
               cardTheme: CardThemeData(
                 elevation: 2,
-                shadowColor: Colors.black.withOpacity(0.1), // Also fixed withValues to withOpacity
+                shadowColor: Colors.black
+                    .withOpacity(0.1), // Also fixed withValues to withOpacity
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
                 color: Colors.white,
               ),
-              inputDecorationTheme: InputDecorationTheme( 
+              inputDecorationTheme: InputDecorationTheme(
                 filled: true,
                 fillColor: const Color(0xFFF8FAFC),
                 border: OutlineInputBorder(
@@ -96,13 +114,15 @@ class MyApp extends StatelessWidget {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF6366F1), width: 2),
+                  borderSide:
+                      const BorderSide(color: Color(0xFF6366F1), width: 2),
                 ),
                 errorBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: const BorderSide(color: Color(0xFFEF4444)),
                 ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               ),
               textTheme: const TextTheme(
                 headlineLarge: TextStyle(
@@ -143,5 +163,3 @@ class MyApp extends StatelessWidget {
     );
   }
 }
-
-
