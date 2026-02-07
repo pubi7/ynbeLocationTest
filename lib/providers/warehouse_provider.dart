@@ -267,42 +267,15 @@ class WarehouseProvider extends ChangeNotifier {
       // Add delay to prevent rate limiting
       await Future.delayed(const Duration(milliseconds: 300));
 
-      // Agent-ийн дэлгүүрүүд (Weve)
-      List<Shop> agentShops = [];
-      try {
-        agentShops = await _bridge.fetchAgentStores();
-      } catch (e) {
-        // Don't fail entire refresh if agent stores fail
-        if (e is DioException && e.response?.statusCode == 429) {
-          debugPrint('Agent stores fetch rate limited: $e');
-        } else {
-          debugPrint('Agent stores fetch failed: $e');
-        }
-      }
+      // Зөвхөн /api/customers endpoint ашиглана.
+      // Backend нь SalesAgent-д зөвхөн assignedAgentId-аар filter хийсэн
+      // customers-ийг л буцаана. Store table-ийн seed data (Central Wholesale
+      // Market гэх мэт) орохгүй.
+      _shops = await _bridge.fetchAllShops(pageSize: pageSize);
 
-      // Customers жагсаалтыг үргэлж татаж, олон дэлгүүр гарна
-      List<Shop> customerShops = [];
-      try {
-        customerShops = await _bridge.fetchAllShops(pageSize: pageSize);
-      } catch (e) {
-        if (agentShops.isEmpty) rethrow;
-        debugPrint('Customers fetch failed (using agent shops only): $e');
-      }
-
-      // Нэгтгэх: agent дэлгүүр + customers дахь шинэ ID-тай дэлгүүр
-      final agentIds = agentShops.map((s) => s.id).toSet();
-      final combined = List<Shop>.from(agentShops);
-      for (final c in customerShops) {
-        if (!agentIds.contains(c.id)) {
-          combined.add(c);
-          agentIds.add(c.id);
-        }
-      }
-
-      _shops = combined;
       if (kDebugMode) {
         debugPrint(
-            '[WarehouseProvider] ✅ Fetched ${_shops.length} shops (${agentShops.length} agent + ${customerShops.length} customers)');
+            '[WarehouseProvider] ✅ Fetched ${_shops.length} shops (assigned customers only)');
         if (_shops.isNotEmpty) {
           debugPrint(
               '[WarehouseProvider] First shop: ${_shops.first.name} - Address: ${_shops.first.address}');
