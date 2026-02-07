@@ -112,6 +112,8 @@ class _OrderScreenState extends State<OrderScreen> {
           if (customerId != null) {
             if (kDebugMode) {
               debugPrint('📤 Warehouse backend руу захиалга илгээж байна...');
+              debugPrint('   • Нэвтэрсэн хэрэглэгч ID: ${authProvider.user?.id}');
+              debugPrint('   • Нэвтэрсэн хэрэглэгч: ${authProvider.user?.name}');
               debugPrint('   • Дэлгүүр ID: $customerId');
               debugPrint('   • Барааны тоо: ${items.length}');
             }
@@ -126,8 +128,8 @@ class _OrderScreenState extends State<OrderScreen> {
             if (kDebugMode) {
               debugPrint('✅ Захиалга амжилттай илгээгдлээ!');
               debugPrint('   • Order ID: ${result['order']?['id']}');
-              debugPrint(
-                  '🌐 Захиалга web dashboard дээр харагдаж байна!');
+              debugPrint('   • Agent ID (backend): ${result['order']?['agentId']}');
+              debugPrint('🌐 Захиалга web dashboard дээр харагдаж байна!');
             }
           }
         }

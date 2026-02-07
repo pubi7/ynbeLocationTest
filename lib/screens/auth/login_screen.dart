@@ -118,18 +118,22 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (mounted) {
       if (success) {
-        // Connect to warehouse backend and fetch data
+        // Connect WarehouseProvider using the SAME token from MobileUserLoginProvider
+        // (shared WarehouseWebBridge — no double login API call needed)
         try {
           final warehouseProvider = Provider.of<WarehouseProvider>(context, listen: false);
-          await warehouseProvider.connect(
-            identifier: _emailController.text.trim(),
-            password: _passwordController.text,
+          await warehouseProvider.connectWithExistingToken(
             authProvider: authProvider,
           );
           
           // Fetch products and shops from warehouse
           await warehouseProvider.refreshProducts();
           await warehouseProvider.refreshShops(authProvider: authProvider);
+          
+          if (kDebugMode) {
+            debugPrint('✅ WarehouseProvider connected with mobile user token');
+            debugPrint('   Mobile user ID: ${loginProvider.user?.id}');
+          }
         } catch (e) {
           // Continue even if warehouse connection fails
           debugPrint('Warehouse connection failed: $e');

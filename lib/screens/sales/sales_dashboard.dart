@@ -615,17 +615,21 @@ class _SalesDashboardState extends State<SalesDashboard> {
                             children: [
                               Row(
                                 children: [
-                                  const Icon(Icons.calendar_month_rounded, color: Color(0xFF6366F1), size: 24),
-                                  const SizedBox(width: 12),
-                                  Text(
-                                    '${intl.DateFormat('yyyy-MMMM', 'mn_MN').format(now)} сарын төлөвлөгөө',
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF1E293B),
+                                  const Icon(Icons.calendar_month_rounded, color: Color(0xFF6366F1), size: 22),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      '${intl.DateFormat('yyyy-MMMM', 'mn_MN').format(now)} сарын төлөвлөгөө',
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF1E293B),
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  const Spacer(),
+                                  const SizedBox(width: 8),
                                   if (_isLoadingMonthlyTarget)
                                     const SizedBox(
                                       width: 20,
@@ -636,7 +640,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                     Text(
                                       '${_monthlyTarget.toStringAsFixed(0)} ₮',
                                       style: const TextStyle(
-                                        fontSize: 18,
+                                        fontSize: 15,
                                         fontWeight: FontWeight.bold,
                                         color: Color(0xFF6366F1),
                                       ),

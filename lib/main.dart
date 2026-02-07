@@ -10,6 +10,7 @@ import 'providers/order_provider.dart';
 import 'providers/product_provider.dart';
 import 'providers/shop_provider.dart';
 import 'providers/warehouse_provider.dart';
+import 'services/warehouse_web_bridge.dart';
 import 'utils/app_router.dart';
 
 void main() async {
@@ -26,16 +27,23 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Single shared bridge instance — both MobileUserLoginProvider and
+    // WarehouseProvider use the same Dio/token so we avoid double-login
+    // and the mobile user's ID is always used for order creation.
+    final sharedBridge = WarehouseWebBridge();
+
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
-        ChangeNotifierProvider(create: (_) => MobileUserLoginProvider()),
+        ChangeNotifierProvider(
+            create: (_) => MobileUserLoginProvider(bridge: sharedBridge)),
         ChangeNotifierProvider(create: (_) => LocationProvider()),
         ChangeNotifierProvider(create: (_) => SalesProvider()),
         ChangeNotifierProvider(create: (_) => OrderProvider()),
         ChangeNotifierProvider(create: (_) => ProductProvider()),
         ChangeNotifierProvider(create: (_) => ShopProvider()),
-        ChangeNotifierProvider(create: (_) => WarehouseProvider()),
+        ChangeNotifierProvider(
+            create: (_) => WarehouseProvider(bridge: sharedBridge)),
       ],
       child: Consumer<AuthProvider>(
         builder: (context, authProvider, _) {

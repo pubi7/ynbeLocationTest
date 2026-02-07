@@ -59,6 +59,7 @@ class WarehouseProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Connect by making a fresh login call (legacy method).
   Future<bool> connect(
       {required String identifier,
       required String password,
@@ -77,43 +78,7 @@ class WarehouseProvider extends ChangeNotifier {
 
       // Fetch user profile and update AuthProvider (with delay to prevent rate limiting)
       if (authProvider != null) {
-        try {
-          await Future.delayed(const Duration(milliseconds: 200));
-          final profileData = await _bridge.getProfile();
-          final userData = profileData['user'] as Map<String, dynamic>?;
-          if (userData != null) {
-            // Extract and save agent ID if available
-            final agentId = userData['agentId'] ?? userData['id'];
-            if (agentId != null) {
-              final agentIdInt = (agentId is num)
-                  ? agentId.toInt()
-                  : int.tryParse(agentId.toString());
-              if (agentIdInt != null) {
-                // Save to SharedPreferences for LocationProvider
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setInt('agent_id', agentIdInt);
-                if (kDebugMode) {
-                  debugPrint(
-                      '[WarehouseProvider] ✅ Agent ID хадгалагдлаа: $agentIdInt');
-                }
-              }
-            }
-
-            await authProvider.updateFromBackend(
-              id: (userData['id'] ?? '').toString(),
-              name: userData['displayName']?.toString() ??
-                  userData['name']?.toString() ??
-                  'User',
-              email: userData['email']?.toString() ?? identifier,
-              role: userData['roleDisplay']?.toString().toLowerCase() ??
-                  userData['role']?.toString().toLowerCase() ??
-                  'user',
-            );
-          }
-        } catch (e) {
-          // If profile fetch fails, continue with connection
-          debugPrint('Failed to fetch profile: $e');
-        }
+        await _fetchAndUpdateProfile(authProvider, identifier);
       }
 
       _connected = true;
@@ -131,6 +96,89 @@ class WarehouseProvider extends ChangeNotifier {
       _loading = false;
       notifyListeners();
       return false;
+    }
+  }
+
+  /// Connect using an existing token (e.g. from MobileUserLoginProvider).
+  /// This avoids a second login API call and uses the same user session.
+  Future<bool> connectWithExistingToken({AuthProvider? authProvider}) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      // The shared bridge already has the token set by MobileUserLoginProvider
+      _token = await _bridge.loadToken();
+
+      if (_token == null || _token!.isEmpty) {
+        throw Exception('No token available');
+      }
+
+      // Make sure the token is set on the Dio instance
+      _bridge.setToken(_token!);
+
+      // Fetch user profile and update AuthProvider
+      if (authProvider != null) {
+        await _fetchAndUpdateProfile(authProvider, '');
+      }
+
+      _connected = true;
+      _loading = false;
+      if (kDebugMode) {
+        debugPrint('[WarehouseProvider] ✅ Connected with existing token (no double login)');
+      }
+      notifyListeners();
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[WarehouseProvider] ❌ connectWithExistingToken failed: $e');
+      }
+      _error = e.toString();
+      _connected = false;
+      _loading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Helper to fetch user profile and update AuthProvider
+  Future<void> _fetchAndUpdateProfile(AuthProvider authProvider, String fallbackEmail) async {
+    try {
+      await Future.delayed(const Duration(milliseconds: 200));
+      final profileData = await _bridge.getProfile();
+      final userData = profileData['user'] as Map<String, dynamic>?;
+      if (userData != null) {
+        // Extract and save agent ID if available
+        final agentId = userData['agentId'] ?? userData['id'];
+        if (agentId != null) {
+          final agentIdInt = (agentId is num)
+              ? agentId.toInt()
+              : int.tryParse(agentId.toString());
+          if (agentIdInt != null) {
+            // Save to SharedPreferences for LocationProvider
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setInt('agent_id', agentIdInt);
+            if (kDebugMode) {
+              debugPrint(
+                  '[WarehouseProvider] ✅ Agent ID хадгалагдлаа: $agentIdInt');
+            }
+          }
+        }
+
+        await authProvider.updateFromBackend(
+          id: (userData['id'] ?? '').toString(),
+          name: userData['displayName']?.toString() ??
+              userData['name']?.toString() ??
+              'User',
+          email: userData['email']?.toString() ?? fallbackEmail,
+          role: userData['roleDisplay']?.toString().toLowerCase() ??
+              userData['role']?.toString().toLowerCase() ??
+              'user',
+        );
+      }
+    } catch (e) {
+      // If profile fetch fails, continue with connection
+      debugPrint('Failed to fetch profile: $e');
     }
   }
 

@@ -641,21 +641,26 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       // Map payment method to backend format
       final backendPaymentMethod = _mapPaymentMethod(paymentMethod);
 
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
       debugPrint('📤 Warehouse backend руу захиалга илгээж байна...');
+      debugPrint('   • Нэвтэрсэн хэрэглэгч ID: ${authProvider.user?.id}');
+      debugPrint('   • Нэвтэрсэн хэрэглэгч: ${authProvider.user?.name}');
       debugPrint('   • Дэлгүүр ID: $customerId');
       debugPrint('   • Барааны тоо: ${items.length}');
       debugPrint('   • Төлбөрийн төрөл: $backendPaymentMethod');
 
       // Create order via warehouse backend API
+      // Backend uses JWT token's userId as agentId (= mobile logged-in user's ID)
       final result = await warehouseProvider.createOrder(
         customerId: customerId,
         items: items,
-        orderType: 'Store', // or 'Market' depending on your needs
+        orderType: 'Store',
         paymentMethod: backendPaymentMethod,
       );
 
       debugPrint('✅ Захиалга амжилттай илгээгдлээ!');
       debugPrint('   • Order ID: ${result['order']?['id']}');
+      debugPrint('   • Agent ID (backend): ${result['order']?['agentId']}');
       debugPrint('   • Order Number: ${result['order']?['orderNumber']}');
       debugPrint('🌐 Захиалга web dashboard дээр харагдаж байна!');
     } catch (e) {
