@@ -625,7 +625,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         return;
       }
 
-      // Prepare order items (backend expects: [{ productId: int, quantity: int }])
+      // Prepare order items with unitPrice for backend
       final items = _selectedItems.map((item) {
         final productId = int.tryParse(item.productId);
         if (productId == null) {
@@ -634,6 +634,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         return {
           'productId': productId,
           'quantity': item.quantity,
+          'unitPrice': item.price, // Send price so backend can use as fallback
         };
       }).toList();
 

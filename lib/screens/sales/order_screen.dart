@@ -93,6 +93,7 @@ class _OrderScreenState extends State<OrderScreen> {
           return {
             'productId': productId,
             'quantity': item.quantity,
+            'unitPrice': item.unitPrice, // Send price so backend can use as fallback
           };
         }).toList();
 
