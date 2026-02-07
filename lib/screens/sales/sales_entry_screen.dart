@@ -9,6 +9,7 @@ import '../../providers/product_provider.dart';
 import '../../providers/shop_provider.dart';
 import '../../providers/location_provider.dart';
 import '../../providers/warehouse_provider.dart';
+import '../../providers/order_provider.dart';
 import '../../models/sales_model.dart';
 import '../../models/sales_item_model.dart';
 import '../../models/product_model.dart';
@@ -661,9 +662,42 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       debugPrint('   • Agent ID (backend): ${result['order']?['agentId']}');
       debugPrint('   • Order Number: ${result['order']?['orderNumber']}');
       debugPrint('🌐 Захиалга web dashboard дээр харагдаж байна!');
+
+      // Refresh orders list so it appears immediately on dashboard/orders screen
+      try {
+        if (mounted) {
+          final orderProvider =
+              Provider.of<OrderProvider>(context, listen: false);
+          await orderProvider.fetchOrders(warehouseProvider.dio);
+          debugPrint('📋 Захиалгын жагсаалт шинэчлэгдлээ');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Захиалгын жагсаалт шинэчлэхэд алдаа: $e');
+      }
+
+      // Refresh products to update stock quantities after order
+      try {
+        await warehouseProvider.refreshProducts();
+        if (mounted) {
+          final productProvider =
+              Provider.of<ProductProvider>(context, listen: false);
+          productProvider.setProducts(warehouseProvider.products);
+          debugPrint('📦 Барааны үлдэгдэл шинэчлэгдлээ');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Барааны үлдэгдэл шинэчлэхэд алдаа: $e');
+      }
     } catch (e) {
       debugPrint('❌ Захиалга илгээхэд алдаа гарлаа: $e');
-      // Don't show error to user - this is secondary functionality
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ Захиалга backend-д илгээхэд алдаа: $e'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     }
   }
 

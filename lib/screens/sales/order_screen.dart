@@ -25,7 +25,7 @@ class _OrderScreenState extends State<OrderScreen> {
   final _customerPhoneController = TextEditingController();
   final _customerAddressController = TextEditingController();
   final _notesController = TextEditingController();
-  
+
   final List<OrderItem> _orderItems = [];
   bool _isLoading = false;
 
@@ -112,8 +112,10 @@ class _OrderScreenState extends State<OrderScreen> {
           if (customerId != null) {
             if (kDebugMode) {
               debugPrint('📤 Warehouse backend руу захиалга илгээж байна...');
-              debugPrint('   • Нэвтэрсэн хэрэглэгч ID: ${authProvider.user?.id}');
-              debugPrint('   • Нэвтэрсэн хэрэглэгч: ${authProvider.user?.name}');
+              debugPrint(
+                  '   • Нэвтэрсэн хэрэглэгч ID: ${authProvider.user?.id}');
+              debugPrint(
+                  '   • Нэвтэрсэн хэрэглэгч: ${authProvider.user?.name}');
               debugPrint('   • Дэлгүүр ID: $customerId');
               debugPrint('   • Барааны тоо: ${items.length}');
             }
@@ -128,7 +130,8 @@ class _OrderScreenState extends State<OrderScreen> {
             if (kDebugMode) {
               debugPrint('✅ Захиалга амжилттай илгээгдлээ!');
               debugPrint('   • Order ID: ${result['order']?['id']}');
-              debugPrint('   • Agent ID (backend): ${result['order']?['agentId']}');
+              debugPrint(
+                  '   • Agent ID (backend): ${result['order']?['agentId']}');
               debugPrint('🌐 Захиалга web dashboard дээр харагдаж байна!');
             }
           }
@@ -157,6 +160,19 @@ class _OrderScreenState extends State<OrderScreen> {
       // Refresh orders from backend to keep in sync
       if (warehouseProvider.connected) {
         await orderProvider.fetchOrders(warehouseProvider.dio);
+
+        // Refresh products to update stock quantities after order
+        try {
+          await warehouseProvider.refreshProducts();
+          if (mounted) {
+            final productProvider =
+                Provider.of<ProductProvider>(context, listen: false);
+            productProvider.setProducts(warehouseProvider.products);
+            debugPrint('📦 Барааны үлдэгдэл шинэчлэгдлээ');
+          }
+        } catch (e) {
+          debugPrint('⚠️ Барааны үлдэгдэл шинэчлэхэд алдаа: $e');
+        }
       }
 
       setState(() {
@@ -207,14 +223,18 @@ class _OrderScreenState extends State<OrderScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final order = Order(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      customerName: _customerNameController.text.trim().isEmpty ? 'Харилцагч' : _customerNameController.text.trim(),
+      customerName: _customerNameController.text.trim().isEmpty
+          ? 'Харилцагч'
+          : _customerNameController.text.trim(),
       customerPhone: _customerPhoneController.text.trim(),
       customerAddress: _customerAddressController.text.trim(),
       items: List.from(_orderItems),
       totalAmount: _totalAmount,
       status: 'pending',
       orderDate: DateTime.now(),
-      notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+      notes: _notesController.text.trim().isEmpty
+          ? null
+          : _notesController.text.trim(),
       salespersonId: authProvider.user?.id ?? '',
       salespersonName: authProvider.user?.name ?? '',
     );
@@ -355,7 +375,6 @@ class _OrderScreenState extends State<OrderScreen> {
                           ),
                         ),
                         const SizedBox(height: 16),
-
                         TextFormField(
                           controller: _customerNameController,
                           decoration: const InputDecoration(
@@ -371,7 +390,6 @@ class _OrderScreenState extends State<OrderScreen> {
                           },
                         ),
                         const SizedBox(height: 16),
-
                         TextFormField(
                           controller: _customerPhoneController,
                           keyboardType: TextInputType.phone,
@@ -388,7 +406,6 @@ class _OrderScreenState extends State<OrderScreen> {
                           },
                         ),
                         const SizedBox(height: 16),
-
                         TextFormField(
                           controller: _customerAddressController,
                           maxLines: 2,
@@ -489,7 +506,8 @@ class _OrderScreenState extends State<OrderScreen> {
                               margin: const EdgeInsets.only(bottom: 8),
                               child: ListTile(
                                 title: Text(item.productName),
-                                subtitle: Text('Qty: ${item.quantity} × \$${item.unitPrice}'),
+                                subtitle: Text(
+                                    'Qty: ${item.quantity} × \$${item.unitPrice}'),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -501,7 +519,8 @@ class _OrderScreenState extends State<OrderScreen> {
                                       ),
                                     ),
                                     IconButton(
-                                      icon: const Icon(Icons.delete, color: Colors.red),
+                                      icon: const Icon(Icons.delete,
+                                          color: Colors.red),
                                       onPressed: () => _removeOrderItem(index),
                                     ),
                                   ],
@@ -750,9 +769,11 @@ class _AddOrderItemDialogState extends State<_AddOrderItemDialog> {
   Widget build(BuildContext context) {
     return Consumer<ProductProvider>(
       builder: (context, productProvider, child) {
-        final totalPrice = _selectedProduct != null && _quantityController.text.isNotEmpty
-            ? (int.tryParse(_quantityController.text) ?? 1) * _selectedProduct!.price
-            : 0.0;
+        final totalPrice =
+            _selectedProduct != null && _quantityController.text.isNotEmpty
+                ? (int.tryParse(_quantityController.text) ?? 1) *
+                    _selectedProduct!.price
+                : 0.0;
 
         return AlertDialog(
           title: const Text('Бүтээгдэхүүн нэмэх'),
@@ -786,7 +807,8 @@ class _AddOrderItemDialogState extends State<_AddOrderItemDialog> {
                       return null;
                     },
                   ),
-                  if (_selectedProduct != null && _selectedProduct!.description != null)
+                  if (_selectedProduct != null &&
+                      _selectedProduct!.description != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8.0),
                       child: Text(
@@ -814,7 +836,8 @@ class _AddOrderItemDialogState extends State<_AddOrderItemDialog> {
                             if (value == null || value.trim().isEmpty) {
                               return 'Шаардлагатай';
                             }
-                            if (int.tryParse(value.trim()) == null || int.parse(value.trim()) <= 0) {
+                            if (int.tryParse(value.trim()) == null ||
+                                int.parse(value.trim()) <= 0) {
                               return 'Буруу';
                             }
                             return null;

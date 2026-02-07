@@ -63,14 +63,16 @@ class ApiConfig {
 
     // Warehouse backend (warehouse-service-main) runs on port 3000
     // Flutter Web: localhost works
-    // Android Emulator: 10.0.2.2 (host loopback)
-    // Physical Phone: Use PC LAN IP (192.168.1.6)
-    // iOS Simulator: localhost works
+    // Android/iOS with adb reverse: localhost works (port forwarded via USB)
+    // Run: adb reverse tcp:3000 tcp:3000
     if (PlatformInfo.isWeb) {
       return 'http://localhost:3000';
     }
-    // Mobile devices - use LAN IP
-    return 'http://192.168.1.6:3000';
+    // Android (physical device + emulator):
+    // Use: adb reverse tcp:3000 tcp:3000
+    // This forwards phone's localhost:3000 → PC's localhost:3000 via USB
+    // Works for both physical devices and emulators
+    return 'http://localhost:3000';
   }
 
   // Warehouse API Base URL

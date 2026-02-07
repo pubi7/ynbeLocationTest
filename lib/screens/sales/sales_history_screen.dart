@@ -24,11 +24,24 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadProductsForSale());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadProductsForSale();
+      // Listen for product changes (e.g. stock updates after orders)
+      final productProvider = Provider.of<ProductProvider>(context, listen: false);
+      productProvider.addListener(_onProductsChanged);
+    });
+  }
+
+  void _onProductsChanged() {
+    _loadProductsForSale();
   }
 
   @override
   void dispose() {
+    try {
+      final productProvider = Provider.of<ProductProvider>(context, listen: false);
+      productProvider.removeListener(_onProductsChanged);
+    } catch (_) {}
     _productSearchController.dispose();
     super.dispose();
   }

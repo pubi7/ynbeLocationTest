@@ -40,6 +40,18 @@ class _SalesDashboardState extends State<SalesDashboard> {
     _loadMonthlyTarget();
     _loadProductsForSale();
     _loadOrders();
+
+    // Listen for product changes (e.g. stock updates after orders)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final productProvider =
+          Provider.of<ProductProvider>(context, listen: false);
+      productProvider.addListener(_onProductsChanged);
+    });
+  }
+
+  void _onProductsChanged() {
+    // Re-load product list when products update (stock changes after order)
+    _loadProductsForSale();
   }
 
   Future<void> _loadOrders() async {
@@ -53,6 +65,11 @@ class _SalesDashboardState extends State<SalesDashboard> {
 
   @override
   void dispose() {
+    try {
+      final productProvider =
+          Provider.of<ProductProvider>(context, listen: false);
+      productProvider.removeListener(_onProductsChanged);
+    } catch (_) {}
     _productSearchController.dispose();
     super.dispose();
   }
@@ -67,7 +84,8 @@ class _SalesDashboardState extends State<SalesDashboard> {
   }
 
   Future<void> _loadMonthlyTarget() async {
-    final warehouseProvider = Provider.of<WarehouseProvider>(context, listen: false);
+    final warehouseProvider =
+        Provider.of<WarehouseProvider>(context, listen: false);
     if (!warehouseProvider.connected) {
       // Fallback to local storage
       final prefs = await SharedPreferences.getInstance();
@@ -91,10 +109,11 @@ class _SalesDashboardState extends State<SalesDashboard> {
       );
       if (!mounted) return;
       setState(() {
-        _monthlyTarget = (targetData['monthlyTarget'] as num?)?.toDouble() ?? _monthlyTarget;
+        _monthlyTarget =
+            (targetData['monthlyTarget'] as num?)?.toDouble() ?? _monthlyTarget;
         _isLoadingMonthlyTarget = false;
       });
-      
+
       // Save to local storage as backup
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_monthlyTargetKey, _monthlyTarget);
@@ -111,9 +130,11 @@ class _SalesDashboardState extends State<SalesDashboard> {
   }
 
   Future<void> _loadProductsForSale() async {
-    final warehouseProvider = Provider.of<WarehouseProvider>(context, listen: false);
-    final productProvider = Provider.of<ProductProvider>(context, listen: false);
-    
+    final warehouseProvider =
+        Provider.of<WarehouseProvider>(context, listen: false);
+    final productProvider =
+        Provider.of<ProductProvider>(context, listen: false);
+
     if (!warehouseProvider.connected) {
       // Use local products
       if (!mounted) return;
@@ -165,9 +186,9 @@ class _SalesDashboardState extends State<SalesDashboard> {
       final name = product.name?.toLowerCase() ?? '';
       final barcode = (product.barcode ?? '').toLowerCase();
       final productCode = (product.productCode ?? '').toLowerCase();
-      return name.contains(query) || 
-             barcode.contains(query) || 
-             productCode.contains(query);
+      return name.contains(query) ||
+          barcode.contains(query) ||
+          productCode.contains(query);
     }).toList();
   }
 
@@ -195,12 +216,15 @@ class _SalesDashboardState extends State<SalesDashboard> {
     return '$hh:$mm';
   }
 
-  void _showTodaySalesBreakdown(BuildContext context, List<Sales> sales, double dailyTarget) {
+  void _showTodaySalesBreakdown(
+      BuildContext context, List<Sales> sales, double dailyTarget) {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day);
     final end = start.add(const Duration(days: 1));
 
-    final todays = sales.where((s) => !s.saleDate.isBefore(start) && s.saleDate.isBefore(end)).toList();
+    final todays = sales
+        .where((s) => !s.saleDate.isBefore(start) && s.saleDate.isBefore(end))
+        .toList();
 
     final Map<String, _Agg> agg = {};
     for (final s in todays) {
@@ -247,10 +271,10 @@ class _SalesDashboardState extends State<SalesDashboard> {
                 const SizedBox(height: 6),
                 Text(
                   '${totalQty} ширхэг • ${totalAmount.toStringAsFixed(0)} ₮',
-                  style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                      color: Colors.grey.shade700, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 12),
-
                 if (items.isEmpty)
                   Container(
                     width: double.infinity,
@@ -260,11 +284,13 @@ class _SalesDashboardState extends State<SalesDashboard> {
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: Colors.grey.shade200),
                     ),
-                    child: const Text('Өнөөдөр борлуулалт бүртгэгдээгүй байна.'),
+                    child:
+                        const Text('Өнөөдөр борлуулалт бүртгэгдээгүй байна.'),
                   )
                 else
                   ConstrainedBox(
-                    constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.65),
+                    constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(context).size.height * 0.65),
                     child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: items.length,
@@ -277,7 +303,10 @@ class _SalesDashboardState extends State<SalesDashboard> {
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: isTop ? const Color(0xFF10B981).withOpacity(0.35) : Colors.grey.shade200),
+                            border: Border.all(
+                                color: isTop
+                                    ? const Color(0xFF10B981).withOpacity(0.35)
+                                    : Colors.grey.shade200),
                           ),
                           child: Row(
                             children: [
@@ -285,7 +314,10 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                 width: 36,
                                 height: 36,
                                 decoration: BoxDecoration(
-                                  color: (isTop ? const Color(0xFF10B981) : const Color(0xFF6366F1)).withOpacity(0.12),
+                                  color: (isTop
+                                          ? const Color(0xFF10B981)
+                                          : const Color(0xFF6366F1))
+                                      .withOpacity(0.12),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Center(
@@ -293,7 +325,9 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                     '${i + 1}',
                                     style: TextStyle(
                                       fontWeight: FontWeight.w900,
-                                      color: isTop ? const Color(0xFF10B981) : const Color(0xFF6366F1),
+                                      color: isTop
+                                          ? const Color(0xFF10B981)
+                                          : const Color(0xFF6366F1),
                                     ),
                                   ),
                                 ),
@@ -310,16 +344,20 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                             e.key,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(fontWeight: FontWeight.w800),
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w800),
                                           ),
                                         ),
                                         if (isTop) ...[
                                           const SizedBox(width: 8),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 10, vertical: 6),
                                             decoration: BoxDecoration(
-                                              color: const Color(0xFF10B981).withOpacity(0.12),
-                                              borderRadius: BorderRadius.circular(999),
+                                              color: const Color(0xFF10B981)
+                                                  .withOpacity(0.12),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
                                             ),
                                             child: const Text(
                                               'Хамгийн их',
@@ -336,7 +374,9 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                     const SizedBox(height: 4),
                                     Text(
                                       '${e.value.qty} ширхэг',
-                                      style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                                      style: TextStyle(
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.w600),
                                     ),
                                   ],
                                 ),
@@ -344,7 +384,8 @@ class _SalesDashboardState extends State<SalesDashboard> {
                               const SizedBox(width: 12),
                               Text(
                                 '${e.value.amount.toStringAsFixed(0)} ₮',
-                                style: const TextStyle(fontWeight: FontWeight.w900),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w900),
                               ),
                             ],
                           ),
@@ -381,8 +422,11 @@ class _SalesDashboardState extends State<SalesDashboard> {
             child: IconButton(
               icon: const Icon(Icons.logout_rounded),
               onPressed: () async {
-                final loginProvider = Provider.of<MobileUserLoginProvider>(context, listen: false);
-                final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                final loginProvider = Provider.of<MobileUserLoginProvider>(
+                    context,
+                    listen: false);
+                final authProvider =
+                    Provider.of<AuthProvider>(context, listen: false);
                 await loginProvider.logout();
                 await authProvider.logout();
                 if (context.mounted) {
@@ -402,18 +446,23 @@ class _SalesDashboardState extends State<SalesDashboard> {
           final role = context.watch<AuthProvider>().userRole;
           final now = DateTime.now();
           final todayTotal = salesProvider.getTotalSalesForDay(now);
-          final todayPct = _dailyTarget <= 0 ? 0.0 : (todayTotal / _dailyTarget);
-          final todayPctText = (todayPct * 100).clamp(0, 999).toStringAsFixed(0);
-          
+          final todayPct =
+              _dailyTarget <= 0 ? 0.0 : (todayTotal / _dailyTarget);
+          final todayPctText =
+              (todayPct * 100).clamp(0, 999).toStringAsFixed(0);
+
           // Filter orders by selected date
-          final selectedDayStart = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+          final selectedDayStart = DateTime(
+              _selectedDate.year, _selectedDate.month, _selectedDate.day);
           final selectedDayEnd = selectedDayStart.add(const Duration(days: 1));
-          
+
           final filteredOrders = orderProvider.orders.where((order) {
-            final orderDay = DateTime(order.orderDate.year, order.orderDate.month, order.orderDate.day);
-            return !orderDay.isBefore(selectedDayStart) && orderDay.isBefore(selectedDayEnd);
+            final orderDay = DateTime(order.orderDate.year,
+                order.orderDate.month, order.orderDate.day);
+            return !orderDay.isBefore(selectedDayStart) &&
+                orderDay.isBefore(selectedDayEnd);
           }).toList();
-          
+
           filteredOrders.sort((a, b) => b.orderDate.compareTo(a.orderDate));
 
           return SingleChildScrollView(
@@ -481,22 +530,29 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                 color: Colors.transparent,
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(12),
-                                  onTap: () => _showTodaySalesBreakdown(context, salesProvider.sales, _dailyTarget),
+                                  onTap: () => _showTodaySalesBreakdown(context,
+                                      salesProvider.sales, _dailyTarget),
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 8),
                                     decoration: BoxDecoration(
                                       color: Colors.white.withOpacity(0.16),
                                       borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: Colors.white.withOpacity(0.22)),
+                                      border: Border.all(
+                                          color:
+                                              Colors.white.withOpacity(0.22)),
                                     ),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        const Icon(Icons.flag_rounded, color: Colors.white, size: 18),
+                                        const Icon(Icons.flag_rounded,
+                                            color: Colors.white, size: 18),
                                         const SizedBox(width: 6),
                                         Text(
                                           '$todayPctText%',
-                                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                                          style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w800),
                                         ),
                                       ],
                                     ),
@@ -522,28 +578,37 @@ class _SalesDashboardState extends State<SalesDashboard> {
                           children: [
                             OutlinedButton.icon(
                               onPressed: _pickDate,
-                              icon: const Icon(Icons.calendar_month_rounded, color: Colors.white),
+                              icon: const Icon(Icons.calendar_month_rounded,
+                                  color: Colors.white),
                               label: Text(
                                 _formatDate(context, _selectedDate),
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600),
                               ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.white,
-                                side: BorderSide(color: Colors.white.withOpacity(0.65)),
+                                side: BorderSide(
+                                    color: Colors.white.withOpacity(0.65)),
                                 backgroundColor: Colors.white.withOpacity(0.12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
                               ),
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
                               decoration: BoxDecoration(
                                 color: Colors.white.withOpacity(0.12),
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.white.withOpacity(0.18)),
+                                border: Border.all(
+                                    color: Colors.white.withOpacity(0.18)),
                               ),
                               child: Text(
                                 'Нийт захиалга: ${filteredOrders.length}',
-                                style: TextStyle(color: Colors.white.withOpacity(0.95), fontWeight: FontWeight.w600),
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(0.95),
+                                    fontWeight: FontWeight.w600),
                               ),
                             ),
                           ],
@@ -592,10 +657,14 @@ class _SalesDashboardState extends State<SalesDashboard> {
                         final now = DateTime.now();
                         final monthStart = DateTime(now.year, now.month, 1);
                         final monthEnd = DateTime(now.year, now.month + 1, 1);
-                        final monthlySales = salesProvider.getTotalSalesForRange(monthStart, monthEnd);
-                        final monthlyProgress = _monthlyTarget <= 0 ? 0.0 : (monthlySales / _monthlyTarget).clamp(0.0, 1.0);
-                        final monthlyProgressPercent = (monthlyProgress * 100).toStringAsFixed(1);
-                        
+                        final monthlySales = salesProvider
+                            .getTotalSalesForRange(monthStart, monthEnd);
+                        final monthlyProgress = _monthlyTarget <= 0
+                            ? 0.0
+                            : (monthlySales / _monthlyTarget).clamp(0.0, 1.0);
+                        final monthlyProgressPercent =
+                            (monthlyProgress * 100).toStringAsFixed(1);
+
                         return Container(
                           margin: const EdgeInsets.only(bottom: 20),
                           padding: const EdgeInsets.all(20),
@@ -615,7 +684,8 @@ class _SalesDashboardState extends State<SalesDashboard> {
                             children: [
                               Row(
                                 children: [
-                                  const Icon(Icons.calendar_month_rounded, color: Color(0xFF6366F1), size: 22),
+                                  const Icon(Icons.calendar_month_rounded,
+                                      color: Color(0xFF6366F1), size: 22),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
@@ -634,7 +704,8 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                     const SizedBox(
                                       width: 20,
                                       height: 20,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
                                     )
                                   else
                                     Text(
@@ -649,10 +720,12 @@ class _SalesDashboardState extends State<SalesDashboard> {
                               ),
                               const SizedBox(height: 16),
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       const Text(
                                         'Одоогийн борлуулалт',
@@ -688,7 +761,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                         style: TextStyle(
                                           fontSize: 24,
                                           fontWeight: FontWeight.bold,
-                                          color: monthlyProgress >= 1.0 
+                                          color: monthlyProgress >= 1.0
                                               ? const Color(0xFF10B981)
                                               : monthlyProgress >= 0.7
                                                   ? const Color(0xFFF59E0B)
@@ -707,7 +780,7 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                   minHeight: 12,
                                   backgroundColor: Colors.grey.shade200,
                                   valueColor: AlwaysStoppedAnimation<Color>(
-                                    monthlyProgress >= 1.0 
+                                    monthlyProgress >= 1.0
                                         ? const Color(0xFF10B981)
                                         : monthlyProgress >= 0.7
                                             ? const Color(0xFFF59E0B)
@@ -745,7 +818,8 @@ class _SalesDashboardState extends State<SalesDashboard> {
                         children: [
                           Row(
                             children: [
-                              const Icon(Icons.shopping_bag_rounded, color: Color(0xFF6366F1), size: 24),
+                              const Icon(Icons.shopping_bag_rounded,
+                                  color: Color(0xFF6366F1), size: 24),
                               const SizedBox(width: 12),
                               const Text(
                                 'Зарагдах бараа',
@@ -760,7 +834,8 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                 const SizedBox(
                                   width: 20,
                                   height: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
                                 ),
                             ],
                           ),
@@ -771,21 +846,25 @@ class _SalesDashboardState extends State<SalesDashboard> {
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.grey[300]!, width: 1),
+                              border: Border.all(
+                                  color: Colors.grey[300]!, width: 1),
                             ),
                             child: TextField(
                               controller: _productSearchController,
                               decoration: InputDecoration(
                                 labelText: '🔍 Бараа хайх',
                                 hintText: 'Барааны нэр, баркод эсвэл SKU',
-                                prefixIcon: const Icon(Icons.search, size: 24, color: Color(0xFF6366F1)),
-                                suffixIcon: _productSearchController.text.isNotEmpty
+                                prefixIcon: const Icon(Icons.search,
+                                    size: 24, color: Color(0xFF6366F1)),
+                                suffixIcon: _productSearchController
+                                        .text.isNotEmpty
                                     ? IconButton(
                                         icon: const Icon(Icons.clear, size: 20),
                                         onPressed: () {
                                           setState(() {
                                             _productSearchController.clear();
-                                            _productsForSale = _filterProducts(_allProductsForSale);
+                                            _productsForSale = _filterProducts(
+                                                _allProductsForSale);
                                           });
                                         },
                                       )
@@ -802,13 +881,15 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
-                                  borderSide: const BorderSide(color: Color(0xFF6366F1), width: 2),
+                                  borderSide: const BorderSide(
+                                      color: Color(0xFF6366F1), width: 2),
                                 ),
                               ),
                               style: const TextStyle(fontSize: 16),
                               onChanged: (value) {
                                 setState(() {
-                                  _productsForSale = _filterProducts(_allProductsForSale);
+                                  _productsForSale =
+                                      _filterProducts(_allProductsForSale);
                                 });
                               },
                             ),
@@ -820,7 +901,8 @@ class _SalesDashboardState extends State<SalesDashboard> {
                               child: Center(
                                 child: Column(
                                   children: [
-                                    Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
+                                    Icon(Icons.search_off,
+                                        size: 48, color: Colors.grey[400]),
                                     const SizedBox(height: 12),
                                     Text(
                                       _productSearchController.text.isNotEmpty
@@ -844,13 +926,15 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFF8FAFC),
                                   borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.grey.shade200),
+                                  border:
+                                      Border.all(color: Colors.grey.shade200),
                                 ),
                                 child: Row(
                                   children: [
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             product.name,
@@ -870,24 +954,39 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                                   color: Color(0xFF10B981),
                                                 ),
                                               ),
-                                              if (product.stockQuantity != null) ...[
+                                              if (product.stockQuantity !=
+                                                  null) ...[
                                                 const SizedBox(width: 12),
                                                 Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 4),
                                                   decoration: BoxDecoration(
-                                                    color: product.stockQuantity! > 10 
-                                                        ? const Color(0xFFECFDF5)
-                                                        : const Color(0xFFFEF3C7),
-                                                    borderRadius: BorderRadius.circular(6),
+                                                    color:
+                                                        product.stockQuantity! >
+                                                                10
+                                                            ? const Color(
+                                                                0xFFECFDF5)
+                                                            : const Color(
+                                                                0xFFFEF3C7),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            6),
                                                   ),
                                                   child: Text(
                                                     'Үлдэгдэл: ${product.stockQuantity}',
                                                     style: TextStyle(
                                                       fontSize: 12,
-                                                      fontWeight: FontWeight.w600,
-                                                      color: product.stockQuantity! > 10
-                                                          ? const Color(0xFF059669)
-                                                          : const Color(0xFFD97706),
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color:
+                                                          product.stockQuantity! >
+                                                                  10
+                                                              ? const Color(
+                                                                  0xFF059669)
+                                                              : const Color(
+                                                                  0xFFD97706),
                                                     ),
                                                   ),
                                                 ),
@@ -901,7 +1000,9 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                 ),
                               );
                             }).toList()),
-                          if (_allProductsForSale.length > _productsForSale.length && _productSearchController.text.isEmpty)
+                          if (_allProductsForSale.length >
+                                  _productsForSale.length &&
+                              _productSearchController.text.isEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 8),
                               child: Center(
@@ -922,7 +1023,8 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                 ),
                               ),
                             ),
-                          if (_productSearchController.text.isNotEmpty && _productsForSale.isNotEmpty)
+                          if (_productSearchController.text.isNotEmpty &&
+                              _productsForSale.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 8),
                               child: Center(
@@ -950,16 +1052,21 @@ class _SalesDashboardState extends State<SalesDashboard> {
                       children: [
                         Text(
                           '${_formatDate(context, _selectedDate)}-ний захиалга',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xFF1E293B),
-                              ),
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFF1E293B),
+                                  ),
                         ),
                         const SizedBox(height: 12),
                         if (orderProvider.isLoading)
-                          const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()))
+                          const Center(
+                              child: Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: CircularProgressIndicator()))
                         else if (orderProvider.error != null)
-                          Text(orderProvider.error!, style: const TextStyle(color: Colors.red))
+                          Text(orderProvider.error!,
+                              style: const TextStyle(color: Colors.red))
                         else if (filteredOrders.isEmpty)
                           Container(
                             width: double.infinity,
@@ -969,14 +1076,16 @@ class _SalesDashboardState extends State<SalesDashboard> {
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(color: Colors.grey.shade200),
                             ),
-                            child: Text('${_formatDate(context, _selectedDate)}-нд захиалга байхгүй байна.'),
+                            child: Text(
+                                '${_formatDate(context, _selectedDate)}-нд захиалга байхгүй байна.'),
                           )
                         else
                           ListView.separated(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
                             itemCount: filteredOrders.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 10),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
                             itemBuilder: (context, i) {
                               final o = filteredOrders[i];
                               final statusColor = switch (o.status) {
@@ -991,13 +1100,15 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                 color: Colors.transparent,
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(16),
-                                  onTap: () => context.go('/order-details/${o.id}', extra: o),
+                                  onTap: () => context
+                                      .go('/order-details/${o.id}', extra: o),
                                   child: Container(
                                     padding: const EdgeInsets.all(14),
                                     decoration: BoxDecoration(
                                       color: Colors.white,
                                       borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(color: Colors.grey.shade200),
+                                      border: Border.all(
+                                          color: Colors.grey.shade200),
                                     ),
                                     child: Row(
                                       children: [
@@ -1005,15 +1116,20 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                           width: 40,
                                           height: 40,
                                           decoration: BoxDecoration(
-                                            color: statusColor.withOpacity(0.12),
-                                            borderRadius: BorderRadius.circular(12),
+                                            color:
+                                                statusColor.withOpacity(0.12),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
                                           ),
-                                          child: Icon(Icons.receipt_long_rounded, color: statusColor),
+                                          child: Icon(
+                                              Icons.receipt_long_rounded,
+                                              color: statusColor),
                                         ),
                                         const SizedBox(width: 12),
                                         Expanded(
                                           child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
                                               Row(
                                                 children: [
@@ -1021,14 +1137,21 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                                     child: Text(
                                                       o.customerName,
                                                       maxLines: 1,
-                                                      overflow: TextOverflow.ellipsis,
-                                                      style: const TextStyle(fontWeight: FontWeight.w700),
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w700),
                                                     ),
                                                   ),
                                                   const SizedBox(width: 8),
                                                   Text(
                                                     _formatTime(o.orderDate),
-                                                    style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                                                    style: TextStyle(
+                                                        color: Colors
+                                                            .grey.shade600,
+                                                        fontWeight:
+                                                            FontWeight.w600),
                                                   ),
                                                 ],
                                               ),
@@ -1037,29 +1160,41 @@ class _SalesDashboardState extends State<SalesDashboard> {
                                                 o.customerAddress,
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(color: Colors.grey.shade600),
+                                                style: TextStyle(
+                                                    color:
+                                                        Colors.grey.shade600),
                                               ),
                                             ],
                                           ),
                                         ),
                                         const SizedBox(width: 12),
                                         Column(
-                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
                                           children: [
                                             Text(
                                               '${o.totalAmount.toStringAsFixed(0)} ₮',
-                                              style: const TextStyle(fontWeight: FontWeight.w800),
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.w800),
                                             ),
                                             const SizedBox(height: 4),
                                             Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 6),
                                               decoration: BoxDecoration(
-                                                color: statusColor.withOpacity(0.12),
-                                                borderRadius: BorderRadius.circular(999),
+                                                color: statusColor
+                                                    .withOpacity(0.12),
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
                                               ),
                                               child: Text(
                                                 o.status,
-                                                style: TextStyle(color: statusColor, fontWeight: FontWeight.w700, fontSize: 12),
+                                                style: TextStyle(
+                                                    color: statusColor,
+                                                    fontWeight: FontWeight.w700,
+                                                    fontSize: 12),
                                               ),
                                             ),
                                           ],
@@ -1086,10 +1221,11 @@ class _SalesDashboardState extends State<SalesDashboard> {
                       children: [
                         Text(
                           'Quick Actions',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xFF1E293B),
-                              ),
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFF1E293B),
+                                  ),
                         ),
                         const SizedBox(height: 16),
                         Row(
@@ -1117,7 +1253,8 @@ class _SalesDashboardState extends State<SalesDashboard> {
     );
   }
 
-  Widget _buildModernStatCard(String title, String value, IconData icon, Color color, Color backgroundColor) {
+  Widget _buildModernStatCard(String title, String value, IconData icon,
+      Color color, Color backgroundColor) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -1139,7 +1276,8 @@ class _SalesDashboardState extends State<SalesDashboard> {
                 child: Icon(icon, size: 20, color: color),
               ),
               const Spacer(),
-              Icon(Icons.trending_up_rounded, size: 16, color: color.withOpacity(0.7)),
+              Icon(Icons.trending_up_rounded,
+                  size: 16, color: color.withOpacity(0.7)),
             ],
           ),
           const SizedBox(height: 16),
@@ -1216,7 +1354,6 @@ class _SalesDashboardState extends State<SalesDashboard> {
       ],
     );
   }
-
 }
 
 class _Agg {

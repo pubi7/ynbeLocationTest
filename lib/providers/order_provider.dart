@@ -73,11 +73,11 @@ class OrderProvider extends ChangeNotifier {
               double.tryParse(orderMap['totalAmount']?.toString() ?? '0') ??
                   0.0,
           status: _mapBackendStatus(orderMap['status']?.toString() ?? ''),
-          orderDate: DateTime.tryParse(
-                  orderMap['orderDate']?.toString() ??
+          orderDate: (DateTime.tryParse(orderMap['orderDate']?.toString() ??
                       orderMap['createdAt']?.toString() ??
                       '') ??
-              DateTime.now(),
+                  DateTime.now())
+              .toLocal(),
           notes: orderMap['notes']?.toString(),
           salespersonId: (agentMap?['id'] ?? '').toString(),
           salespersonName: agentMap?['name']?.toString() ?? '',
