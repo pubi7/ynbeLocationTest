@@ -14,6 +14,8 @@ import '../../providers/shop_provider.dart';
 import '../../providers/warehouse_provider.dart';
 import '../../config/platform_info.dart';
 import '../../widgets/hamburger_menu.dart';
+import '../../services/bluetooth_printer_service.dart';
+import '../../widgets/bluetooth_printer_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -632,6 +634,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       label: const Text('Төлөвлөгөө хадгалах'),
                     ),
                   ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // Bluetooth Printer Section
+            _buildSectionCard(
+              'Bluetooth Принтер',
+              Icons.print_rounded,
+              const Color(0xFF3B82F6),
+              [
+                Builder(
+                  builder: (context) {
+                    final btPrinter = BluetoothPrinterService();
+                    return ListTile(
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                      leading: Icon(
+                        btPrinter.isConnected
+                            ? Icons.bluetooth_connected
+                            : Icons.bluetooth,
+                        color: btPrinter.isConnected
+                            ? Colors.green
+                            : Colors.grey[600],
+                      ),
+                      title: Text(
+                        btPrinter.isConnected
+                            ? btPrinter.connectedPrinterName ?? 'Принтер холбоотой'
+                            : 'Принтер холбоогүй',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w500, fontSize: 16),
+                      ),
+                      subtitle: Text(
+                        btPrinter.isConnected
+                            ? 'Холбогдсон ✅'
+                            : 'Bluetooth принтер сонгоно уу',
+                        style: TextStyle(
+                          color: btPrinter.isConnected
+                              ? Colors.green
+                              : Colors.grey[500],
+                        ),
+                      ),
+                      trailing: ElevatedButton(
+                        onPressed: () async {
+                          await BluetoothPrinterDialog.show(context);
+                          setState(() {}); // Refresh UI
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF3B82F6),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: Text(
+                          btPrinter.isConnected ? 'Солих' : 'Холбох',
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),

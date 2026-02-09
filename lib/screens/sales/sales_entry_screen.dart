@@ -20,6 +20,8 @@ import '../../widgets/sales_entry/shop_info_widget.dart';
 import '../../widgets/sales_entry/cart_items_widget.dart';
 import '../../widgets/sales_entry/payment_method_dialog.dart';
 import '../../services/receipt_service.dart';
+import '../../services/bluetooth_printer_service.dart';
+import '../../widgets/bluetooth_printer_dialog.dart';
 
 class SalesEntryScreen extends StatefulWidget {
   const SalesEntryScreen({super.key});
@@ -459,8 +461,107 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                 ),
               ],
             ),
-            actionsAlignment: MainAxisAlignment.spaceEvenly,
+            actionsAlignment: MainAxisAlignment.center,
+            actionsOverflowDirection: VerticalDirection.down,
             actions: [
+              // 🖨️ BT Принтер товч (шууд хэвлэх)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    final btPrinter = BluetoothPrinterService();
+                    final connected = await btPrinter.checkConnection();
+                    if (!connected) {
+                      // Принтер холбоогүй → холболтын dialog нээх
+                      if (ctx.mounted) {
+                        final result = await BluetoothPrinterDialog.show(ctx);
+                        if (result != true) return; // Cancelled
+                      }
+                    }
+                    // Хэвлэх
+                    final printed = await btPrinter.printSalesReceipt(
+                      items: savedItems,
+                      shopName: savedShopName,
+                      paymentMethod: paymentMethod,
+                      notes: savedNotes,
+                      salesperson: savedUser?.name,
+                    );
+                    if (mounted) {
+                      if (printed) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('🖨️ Баримт хэвлэгдлээ!'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('❌ Хэвлэхэд алдаа гарлаа'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                      Navigator.pop(ctx);
+                      context.go('/sales-dashboard');
+                    }
+                  },
+                  icon: const Icon(Icons.bluetooth, size: 20),
+                  label: const Text(
+                    'BT Принтер',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF3B82F6),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // PDF хэвлэх товч (хуучин арга)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    try {
+                      await ReceiptService.directPrint(
+                        items: savedItems,
+                        shopName: savedShopName,
+                        paymentMethod: paymentMethod,
+                        notes: savedNotes,
+                        salesperson: savedUser,
+                      );
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Хэвлэх алдаа: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
+                    if (mounted) context.go('/sales-dashboard');
+                  },
+                  icon: const Icon(Icons.picture_as_pdf, size: 18),
+                  label: const Text(
+                    'PDF Хэвлэх',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
               // Хаах товч
               TextButton(
                 onPressed: () {
@@ -469,45 +570,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                 },
                 child: const Text(
                   'Хаах',
-                  style: TextStyle(fontSize: 16, color: Colors.grey),
-                ),
-              ),
-              // 🖨️ Хэвлэх товч
-              ElevatedButton.icon(
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  try {
-                    await ReceiptService.directPrint(
-                      items: savedItems,
-                      shopName: savedShopName,
-                      paymentMethod: paymentMethod,
-                      notes: savedNotes,
-                      salesperson: savedUser,
-                    );
-                  } catch (e) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Хэвлэх алдаа: $e'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                  }
-                  if (mounted) context.go('/sales-dashboard');
-                },
-                icon: const Icon(Icons.print, size: 20),
-                label: const Text(
-                  'Хэвлэх',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
                 ),
               ),
             ],

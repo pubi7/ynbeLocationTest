@@ -54,6 +54,7 @@ dependencies:
   
   # URL Launcher
   url_launcher: ^6.2.5
+  print_bluetooth_thermal: ^1.1.9
 
 dev_dependencies:
   flutter_test:
