@@ -10,6 +10,7 @@ import '../models/order_model.dart';
 /// - Builds a compact receipt PDF
 /// - Prints via `printing` plugin (Web -> browser print, Mobile -> OS print flow)
 class PosReceiptService {
+  /// Preview dialog-тай хэвлэх
   static Future<void> printOrderReceipt(Order order) async {
     try {
       final pdf = _buildOrderReceiptPdf(order);
@@ -19,6 +20,34 @@ class PosReceiptService {
     } catch (e, st) {
       if (kDebugMode) {
         debugPrint('[POS] printOrderReceipt error: $e');
+        debugPrint('$st');
+      }
+      rethrow;
+    }
+  }
+
+  /// Шууд принтер руу хэвлэх (preview-гүй)
+  static Future<void> directPrintOrderReceipt(Order order) async {
+    try {
+      final pdf = _buildOrderReceiptPdf(order);
+      final pdfBytes = await pdf.save();
+
+      final printers = await Printing.listPrinters();
+      if (printers.isNotEmpty) {
+        debugPrint('🖨️ Шууд хэвлэж байна: ${printers.first.name}');
+        await Printing.directPrintPdf(
+          printer: printers.first,
+          onLayout: (_) async => pdfBytes,
+        );
+      } else {
+        debugPrint('⚠️ Принтер олдсонгүй, preview dialog нээж байна');
+        await Printing.layoutPdf(
+          onLayout: (_) async => pdfBytes,
+        );
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[POS] directPrintOrderReceipt error: $e');
         debugPrint('$st');
       }
       rethrow;

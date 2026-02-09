@@ -171,4 +171,107 @@ class ReceiptService {
       onLayout: (PdfPageFormat format) async => pdf.save(),
     );
   }
+
+  /// Шууд принтер руу хэвлэх (preview харуулахгүй)
+  /// Хэрэв принтер олдохгүй бол preview dialog нээнэ.
+  static Future<void> directPrint({
+    required List<SalesItem> items,
+    required String shopName,
+    required String paymentMethod,
+    required String? notes,
+    required User? salesperson,
+  }) async {
+    if (items.isEmpty) {
+      throw Exception('Хамгийн багадаа нэг бараа сонгоно уу');
+    }
+
+    final totalAmount = items.fold(0.0, (sum, item) => sum + item.total);
+    final now = DateTime.now();
+
+    final qrData = {
+      'items': items.map((item) => item.toJson()).toList(),
+      'total': totalAmount,
+      'paymentMethod': paymentMethod,
+      'location': shopName,
+      'date': now.toIso8601String(),
+      'salesperson': salesperson?.name ?? '',
+    };
+    final qrDataString = jsonEncode(qrData);
+    final qrImageBytes = await _generateQrCodeImage(qrDataString);
+    final qrImage = pw.MemoryImage(qrImageBytes);
+
+    final pdf = pw.Document();
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.roll80,
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('БОРЛУУЛАЛТЫН БАРИМТ',
+                  style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+                  textAlign: pw.TextAlign.center),
+              pw.SizedBox(height: 10),
+              pw.Divider(),
+              pw.Text('Дэлгүүр: $shopName'),
+              pw.Divider(),
+              for (var item in items) ...[
+                pw.Text(item.productName,
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text('${item.quantity} x ${item.price.toStringAsFixed(0)} ₮'),
+                    pw.Text('${item.total.toStringAsFixed(0)} ₮',
+                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                  ],
+                ),
+                pw.SizedBox(height: 6),
+              ],
+              pw.Divider(),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Нийт үнэ:',
+                      style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                  pw.Text('${totalAmount.toStringAsFixed(0)} ₮',
+                      style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                ],
+              ),
+              if (notes != null && notes.isNotEmpty) pw.Text('Тэмдэглэл: $notes'),
+              pw.Divider(),
+              pw.Text('Худалдагч: ${salesperson?.name ?? ''}'),
+              pw.Text('Төлбөр: ${paymentMethod.toUpperCase()}'),
+              pw.Text('Огноо: ${now.toString().split('.')[0]}'),
+              pw.SizedBox(height: 10),
+              pw.Center(
+                child: pw.Image(qrImage, width: 150, height: 150),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    final pdfBytes = await pdf.save();
+
+    // Принтер хайх
+    final printers = await Printing.listPrinters();
+
+    if (printers.isNotEmpty) {
+      // Эхний принтер дээр шууд хэвлэх
+      final printer = printers.first;
+      debugPrint('🖨️ Шууд хэвлэж байна: ${printer.name}');
+      await Printing.directPrintPdf(
+        printer: printer,
+        onLayout: (_) async => pdfBytes,
+      );
+    } else {
+      // Принтер олдоогүй → print dialog нээх
+      debugPrint('⚠️ Принтер олдсонгүй, preview dialog нээж байна');
+      await Printing.layoutPdf(
+        onLayout: (_) async => pdfBytes,
+      );
+    }
+  }
 }

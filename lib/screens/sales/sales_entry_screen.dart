@@ -403,8 +403,8 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-      // Баримт хэвлэх
-      await ReceiptService.printReceipt(
+      // Баримт шууд хэвлэх (принтер олдвол preview-гүй)
+      await ReceiptService.directPrint(
         items: _selectedItems,
         shopName: _selectedShopName ?? 'Дэлгүүр',
         paymentMethod: paymentMethod,
