@@ -1,6 +1,8 @@
+import 'dart:io' show Platform;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
@@ -255,23 +257,30 @@ class ReceiptService {
 
     final pdfBytes = await pdf.save();
 
-    // Принтер хайх
-    final printers = await Printing.listPrinters();
+    // Mobile (Android/iOS): listPrinters дэмжигдэхгүй → layoutPdf ашиглана
+    // Desktop (Windows/macOS/Linux): directPrintPdf ашиглана
+    final isDesktop = !kIsWeb &&
+        (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
 
-    if (printers.isNotEmpty) {
-      // Эхний принтер дээр шууд хэвлэх
-      final printer = printers.first;
-      debugPrint('🖨️ Шууд хэвлэж байна: ${printer.name}');
-      await Printing.directPrintPdf(
-        printer: printer,
-        onLayout: (_) async => pdfBytes,
-      );
-    } else {
-      // Принтер олдоогүй → print dialog нээх
-      debugPrint('⚠️ Принтер олдсонгүй, preview dialog нээж байна');
-      await Printing.layoutPdf(
-        onLayout: (_) async => pdfBytes,
-      );
+    if (isDesktop) {
+      try {
+        final printers = await Printing.listPrinters();
+        if (printers.isNotEmpty) {
+          debugPrint('🖨️ Шууд хэвлэж байна: ${printers.first.name}');
+          await Printing.directPrintPdf(
+            printer: printers.first,
+            onLayout: (_) async => pdfBytes,
+          );
+          return;
+        }
+      } catch (e) {
+        debugPrint('⚠️ Direct print алдаа: $e');
+      }
     }
+
+    // Mobile эсвэл принтер олдоогүй → OS print dialog нээх
+    await Printing.layoutPdf(
+      onLayout: (_) async => pdfBytes,
+    );
   }
 }

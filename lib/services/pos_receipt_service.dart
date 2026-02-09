@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -26,25 +27,35 @@ class PosReceiptService {
     }
   }
 
-  /// Шууд принтер руу хэвлэх (preview-гүй)
+  /// Шууд принтер руу хэвлэх (desktop дээр preview-гүй, mobile дээр OS dialog)
   static Future<void> directPrintOrderReceipt(Order order) async {
     try {
       final pdf = _buildOrderReceiptPdf(order);
       final pdfBytes = await pdf.save();
 
-      final printers = await Printing.listPrinters();
-      if (printers.isNotEmpty) {
-        debugPrint('🖨️ Шууд хэвлэж байна: ${printers.first.name}');
-        await Printing.directPrintPdf(
-          printer: printers.first,
-          onLayout: (_) async => pdfBytes,
-        );
-      } else {
-        debugPrint('⚠️ Принтер олдсонгүй, preview dialog нээж байна');
-        await Printing.layoutPdf(
-          onLayout: (_) async => pdfBytes,
-        );
+      final isDesktop = !kIsWeb &&
+          (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+
+      if (isDesktop) {
+        try {
+          final printers = await Printing.listPrinters();
+          if (printers.isNotEmpty) {
+            debugPrint('🖨️ Шууд хэвлэж байна: ${printers.first.name}');
+            await Printing.directPrintPdf(
+              printer: printers.first,
+              onLayout: (_) async => pdfBytes,
+            );
+            return;
+          }
+        } catch (e) {
+          debugPrint('⚠️ Direct print алдаа: $e');
+        }
       }
+
+      // Mobile эсвэл принтер олдоогүй → OS print dialog
+      await Printing.layoutPdf(
+        onLayout: (_) async => pdfBytes,
+      );
     } catch (e, st) {
       if (kDebugMode) {
         debugPrint('[POS] directPrintOrderReceipt error: $e');
