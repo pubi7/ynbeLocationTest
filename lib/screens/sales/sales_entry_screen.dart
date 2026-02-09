@@ -403,17 +403,6 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-      // Баримт шууд хэвлэх (принтер олдвол preview-гүй)
-      await ReceiptService.directPrint(
-        items: _selectedItems,
-        shopName: _selectedShopName ?? 'Дэлгүүр',
-        paymentMethod: paymentMethod,
-        notes: _notesController.text.trim().isEmpty
-            ? null
-            : _notesController.text.trim(),
-        salesperson: authProvider.user,
-      );
-
       // ebarimt руу мэдээлэл илгээх
       await _sendToEbarimt(paymentMethod);
 
@@ -421,25 +410,109 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       await _submitSaleWithPaymentMethod(paymentMethod);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        // Хэвлэх товчтой амжилттай dialog харуулах
+        final savedItems = List<SalesItem>.from(_selectedItems);
+        final savedShopName = _selectedShopName ?? 'Дэлгүүр';
+        final savedNotes = _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim();
+        final savedUser = authProvider.user;
+
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check_circle, color: Colors.green, size: 32),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Амжилттай!',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('✅ $paymentMethod төлбөрөөр худалдан авалт амжилттай!'),
-                const SizedBox(height: 4),
+                Text(
+                  '$paymentMethod төлбөрөөр худалдан авалт амжилттай бүртгэгдлээ.',
+                  style: const TextStyle(fontSize: 14),
+                ),
+                const SizedBox(height: 8),
                 const Text(
                   '🌐 Захиалга Weve сайт дээр харагдаж байна',
-                  style: TextStyle(fontSize: 12),
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
             ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 4),
+            actionsAlignment: MainAxisAlignment.spaceEvenly,
+            actions: [
+              // Хаах товч
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  context.go('/sales-dashboard');
+                },
+                child: const Text(
+                  'Хаах',
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                ),
+              ),
+              // 🖨️ Хэвлэх товч
+              ElevatedButton.icon(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  try {
+                    await ReceiptService.directPrint(
+                      items: savedItems,
+                      shopName: savedShopName,
+                      paymentMethod: paymentMethod,
+                      notes: savedNotes,
+                      salesperson: savedUser,
+                    );
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Хэвлэх алдаа: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                  if (mounted) context.go('/sales-dashboard');
+                },
+                icon: const Icon(Icons.print, size: 20),
+                label: const Text(
+                  'Хэвлэх',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF10B981),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ],
           ),
         );
-        context.go('/sales-dashboard');
       }
     } catch (e) {
       if (mounted) {

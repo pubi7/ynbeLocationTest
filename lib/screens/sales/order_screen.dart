@@ -182,13 +182,97 @@ class _OrderScreenState extends State<OrderScreen> {
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Захиалга амжилттай үүсгэлээ!'),
-            backgroundColor: Colors.green,
+        // Хэвлэх товчтой амжилттай dialog харуулах
+        final savedOrder = order;
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check_circle, color: Colors.green, size: 32),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Амжилттай!',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: const Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Захиалга амжилттай бүртгэгдлээ.',
+                  style: TextStyle(fontSize: 14),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  '🌐 Захиалга Weve сайт дээр харагдаж байна',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+            actionsAlignment: MainAxisAlignment.spaceEvenly,
+            actions: [
+              // Хаах товч
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  context.go('/sales-dashboard');
+                },
+                child: const Text(
+                  'Хаах',
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                ),
+              ),
+              // 🖨️ Хэвлэх товч
+              ElevatedButton.icon(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  try {
+                    await PosReceiptService.directPrintOrderReceipt(savedOrder);
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Хэвлэх алдаа: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                  if (mounted) context.go('/sales-dashboard');
+                },
+                icon: const Icon(Icons.print, size: 20),
+                label: const Text(
+                  'Хэвлэх',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF10B981),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ],
           ),
         );
-        context.go('/sales-dashboard');
       }
     } catch (e) {
       if (kDebugMode) {
