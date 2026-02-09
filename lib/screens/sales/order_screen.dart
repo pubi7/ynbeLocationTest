@@ -10,7 +10,6 @@ import '../../models/order_model.dart';
 import '../../models/product_model.dart';
 import '../../services/pos_receipt_service.dart';
 import '../../services/bluetooth_printer_service.dart';
-import '../../widgets/bluetooth_printer_dialog.dart';
 import '../../widgets/hamburger_menu.dart';
 import '../../widgets/bottom_navigation.dart';
 
@@ -230,7 +229,7 @@ class _OrderScreenState extends State<OrderScreen> {
             actionsAlignment: MainAxisAlignment.center,
             actionsOverflowDirection: VerticalDirection.down,
             actions: [
-              // 🖨️ BT Принтер товч (шууд хэвлэх)
+              // 🖨️ Хэвлэх товч (BT холбоотой бол шууд хэвлэнэ)
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -239,9 +238,15 @@ class _OrderScreenState extends State<OrderScreen> {
                     final connected = await btPrinter.checkConnection();
                     if (!connected) {
                       if (ctx.mounted) {
-                        final result = await BluetoothPrinterDialog.show(ctx);
-                        if (result != true) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('⚠️ Bluetooth принтер холбогдоогүй байна.\nТохиргоо → Bluetooth Принтер хэсгээс холбоно уу.'),
+                            backgroundColor: Colors.orange,
+                            duration: Duration(seconds: 4),
+                          ),
+                        );
                       }
+                      return;
                     }
                     final printed = await btPrinter.printOrderReceipt(savedOrder);
                     if (mounted) {
@@ -252,6 +257,8 @@ class _OrderScreenState extends State<OrderScreen> {
                             backgroundColor: Colors.green,
                           ),
                         );
+                        Navigator.pop(ctx);
+                        context.go('/sales-dashboard');
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
@@ -260,19 +267,17 @@ class _OrderScreenState extends State<OrderScreen> {
                           ),
                         );
                       }
-                      Navigator.pop(ctx);
-                      context.go('/sales-dashboard');
                     }
                   },
-                  icon: const Icon(Icons.bluetooth, size: 20),
+                  icon: const Icon(Icons.print, size: 20),
                   label: const Text(
-                    'BT Принтер',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                    'Хэвлэх',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF3B82F6),
+                    backgroundColor: const Color(0xFF10B981),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -280,40 +285,6 @@ class _OrderScreenState extends State<OrderScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              // PDF хэвлэх товч
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    Navigator.pop(ctx);
-                    try {
-                      await PosReceiptService.directPrintOrderReceipt(savedOrder);
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Хэвлэх алдаа: $e'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    }
-                    if (mounted) context.go('/sales-dashboard');
-                  },
-                  icon: const Icon(Icons.picture_as_pdf, size: 18),
-                  label: const Text(
-                    'PDF Хэвлэх',
-                    style: TextStyle(fontSize: 14),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 4),
               // Хаах товч
               TextButton(
                 onPressed: () {
