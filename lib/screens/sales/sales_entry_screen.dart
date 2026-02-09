@@ -1141,29 +1141,34 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                                         MainAxisAlignment
                                                             .spaceBetween,
                                                     children: [
-                                                      Row(
-                                                        children: [
-                                                          const Icon(
-                                                              Icons
-                                                                  .check_circle,
-                                                              color:
-                                                                  Colors.white,
-                                                              size: 20),
-                                                          const SizedBox(
-                                                              width: 8),
-                                                          Text(
-                                                            '✓ ${_selectedProductIds.length} бараа сонгосон',
-                                                            style:
-                                                                const TextStyle(
-                                                              color:
-                                                                  Colors.white,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .bold,
-                                                              fontSize: 16,
+                                                      Expanded(
+                                                        child: Row(
+                                                          children: [
+                                                            const Icon(
+                                                                Icons
+                                                                    .check_circle,
+                                                                color:
+                                                                    Colors.white,
+                                                                size: 20),
+                                                            const SizedBox(
+                                                                width: 8),
+                                                            Flexible(
+                                                              child: Text(
+                                                                '✓ ${_selectedProductIds.length} бараа сонгосон',
+                                                                overflow: TextOverflow.ellipsis,
+                                                                style:
+                                                                    const TextStyle(
+                                                                  color:
+                                                                      Colors.white,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .bold,
+                                                                  fontSize: 14,
+                                                                ),
+                                                              ),
                                                             ),
-                                                          ),
-                                                        ],
+                                                          ],
+                                                        ),
                                                       ),
                                                       if (_selectedProductIds
                                                           .isNotEmpty)
@@ -1555,52 +1560,55 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                                                         const SizedBox(
                                                                             height:
                                                                                 8),
-                                                                        Row(
-                                                                          crossAxisAlignment:
-                                                                              CrossAxisAlignment.center,
+                                                                        Wrap(
+                                                                          spacing: 8,
+                                                                          runSpacing: 6,
+                                                                          crossAxisAlignment: WrapCrossAlignment.center,
                                                                           children: [
-                                                                            Text(
-                                                                              'Хямдрал: ',
-                                                                              style: TextStyle(
-                                                                                fontSize: 13,
-                                                                                color: Colors.grey[700],
-                                                                                fontWeight: FontWeight.w500,
-                                                                              ),
+                                                                            Row(
+                                                                              mainAxisSize: MainAxisSize.min,
+                                                                              children: [
+                                                                                Text(
+                                                                                  'Хямдрал: ',
+                                                                                  style: TextStyle(
+                                                                                    fontSize: 12,
+                                                                                    color: Colors.grey[700],
+                                                                                    fontWeight: FontWeight.w500,
+                                                                                  ),
+                                                                                ),
+                                                                                Container(
+                                                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                                                  decoration: BoxDecoration(
+                                                                                    color: Colors.white,
+                                                                                    borderRadius: BorderRadius.circular(8),
+                                                                                    border: Border.all(color: Colors.grey.shade300),
+                                                                                  ),
+                                                                                  child: Text(
+                                                                                    '${(product.discountPercent ?? 0).clamp(0, 100)} %',
+                                                                                    style: const TextStyle(
+                                                                                      fontSize: 12,
+                                                                                      fontWeight: FontWeight.w700,
+                                                                                      color: Color(0xFF111827),
+                                                                                    ),
+                                                                                  ),
+                                                                                ),
+                                                                              ],
                                                                             ),
                                                                             Container(
-                                                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                                                               decoration: BoxDecoration(
                                                                                 color: Colors.white,
-                                                                                borderRadius: BorderRadius.circular(10),
+                                                                                borderRadius: BorderRadius.circular(8),
                                                                                 border: Border.all(color: Colors.grey.shade300),
                                                                               ),
                                                                               child: Text(
-                                                                                '${(product.discountPercent ?? 0).clamp(0, 100)} %',
-                                                                                style: const TextStyle(
-                                                                                  fontSize: 13,
-                                                                                  fontWeight: FontWeight.w700,
-                                                                                  color: Color(0xFF111827),
-                                                                                ),
-                                                                              ),
-                                                                            ),
-                                                                            const SizedBox(width: 12),
-                                                                            Expanded(
-                                                                              child: Container(
-                                                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                                                                decoration: BoxDecoration(
-                                                                                  color: Colors.white,
-                                                                                  borderRadius: BorderRadius.circular(10),
-                                                                                  border: Border.all(color: Colors.grey.shade300),
-                                                                                ),
-                                                                                child: Text(
-                                                                                  product.promotionText ?? 'Урамшуулал: –',
-                                                                                  maxLines: 1,
-                                                                                  overflow: TextOverflow.ellipsis,
-                                                                                  style: TextStyle(
-                                                                                    fontSize: 13,
-                                                                                    color: Colors.grey[800],
-                                                                                    fontWeight: FontWeight.w600,
-                                                                                  ),
+                                                                                product.promotionText ?? 'Урам: –',
+                                                                                maxLines: 1,
+                                                                                overflow: TextOverflow.ellipsis,
+                                                                                style: TextStyle(
+                                                                                  fontSize: 12,
+                                                                                  color: Colors.grey[800],
+                                                                                  fontWeight: FontWeight.w600,
                                                                                 ),
                                                                               ),
                                                                             ),
