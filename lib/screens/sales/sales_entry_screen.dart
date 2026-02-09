@@ -1399,119 +1399,124 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                                                           onTap:
                                                                               () {}, // Товч/тоо талбар дээр дарахад карт сонголт өөрчлөгдөхгүй
                                                                           child:
-                                                                              Row(
+                                                                              Column(
+                                                                            crossAxisAlignment: CrossAxisAlignment.start,
                                                                             children: [
-                                                                              // Хасах товч
-                                                                              Container(
-                                                                                width: 36,
-                                                                                height: 36,
-                                                                                decoration: BoxDecoration(
-                                                                                  color: Colors.grey[200],
-                                                                                  borderRadius: BorderRadius.circular(8),
-                                                                                ),
-                                                                                child: IconButton(
-                                                                                  padding: EdgeInsets.zero,
-                                                                                  splashRadius: 20,
-                                                                                  icon: const Icon(Icons.remove, size: 20, color: Color(0xFF1F2937)),
-                                                                                  onPressed: () {
-                                                                                    setState(() {
-                                                                                      if (quantity > 1) {
-                                                                                        _productQuantities[product.id] = quantity - 1;
-                                                                                      }
-                                                                                    });
-                                                                                  },
-                                                                                ),
-                                                                              ),
-                                                                              const SizedBox(width: 8),
-                                                                              // Quantity input
-                                                                              SizedBox(
-                                                                                width: 72,
-                                                                                height: 36,
-                                                                                child: TextFormField(
-                                                                                  key: ValueKey('qty_${product.id}_$quantity'),
-                                                                                  textAlign: TextAlign.center,
-                                                                                  initialValue: quantity.toString(),
-                                                                                  keyboardType: TextInputType.number,
-                                                                                  inputFormatters: [
-                                                                                    FilteringTextInputFormatter.digitsOnly,
-                                                                                  ],
-                                                                                  decoration: InputDecoration(
-                                                                                    isDense: true,
-                                                                                    contentPadding: EdgeInsets.zero,
-                                                                                    border: OutlineInputBorder(
+                                                                              // Quantity row: minus, input, plus
+                                                                              Row(
+                                                                                children: [
+                                                                                  // Хасах товч
+                                                                                  Container(
+                                                                                    width: 36,
+                                                                                    height: 36,
+                                                                                    decoration: BoxDecoration(
+                                                                                      color: Colors.grey[200],
                                                                                       borderRadius: BorderRadius.circular(8),
-                                                                                      borderSide: BorderSide(color: Colors.grey[300]!),
                                                                                     ),
-                                                                                    enabledBorder: OutlineInputBorder(
-                                                                                      borderRadius: BorderRadius.circular(8),
-                                                                                      borderSide: BorderSide(color: Colors.grey[300]!),
-                                                                                    ),
-                                                                                    focusedBorder: OutlineInputBorder(
-                                                                                      borderRadius: BorderRadius.circular(8),
-                                                                                      borderSide: const BorderSide(color: Color(0xFF6366F1), width: 2),
-                                                                                    ),
-                                                                                    filled: true,
-                                                                                    fillColor: Colors.white,
-                                                                                    hintText: '0',
-                                                                                  ),
-                                                                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                                                                                  onChanged: (v) {
-                                                                                    setState(() {
-                                                                                      final n = int.tryParse(v);
-                                                                                      if (n != null && n > 0) {
-                                                                                        _productQuantities[product.id] = n;
-                                                                                      }
-                                                                                    });
-                                                                                  },
-                                                                                ),
-                                                                              ),
-                                                                              const SizedBox(width: 8),
-                                                                              // Plus button
-                                                                              Container(
-                                                                                width: 36,
-                                                                                height: 36,
-                                                                                decoration: BoxDecoration(
-                                                                                  color: const Color(0xFF6366F1),
-                                                                                  borderRadius: BorderRadius.circular(8),
-                                                                                ),
-                                                                                child: IconButton(
-                                                                                  padding: EdgeInsets.zero,
-                                                                                  icon: const Icon(Icons.add, size: 20, color: Colors.white),
-                                                                                  onPressed: () {
-                                                                                    setState(() {
-                                                                                      _productQuantities[product.id] = quantity + 1;
-                                                                                    });
-                                                                                  },
-                                                                                ),
-                                                                              ),
-                                                                              const SizedBox(width: 12),
-                                                                              // Unit dropdown
-                                                                              Expanded(
-                                                                                child: Container(
-                                                                                  height: 36,
-                                                                                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                                                                                  decoration: BoxDecoration(
-                                                                                    color: Colors.grey[100],
-                                                                                    borderRadius: BorderRadius.circular(8),
-                                                                                    border: Border.all(color: Colors.grey[300]!),
-                                                                                  ),
-                                                                                  child: DropdownButton<String>(
-                                                                                    value: unitMode,
-                                                                                    isExpanded: true,
-                                                                                    underline: const SizedBox(),
-                                                                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
-                                                                                    items: const [
-                                                                                      DropdownMenuItem(value: 'piece', child: Text('Ширхэг')),
-                                                                                      DropdownMenuItem(value: 'box', child: Text('Хайрцаг')),
-                                                                                    ],
-                                                                                    onChanged: (v) {
-                                                                                      if (v != null) {
+                                                                                    child: IconButton(
+                                                                                      padding: EdgeInsets.zero,
+                                                                                      splashRadius: 20,
+                                                                                      icon: const Icon(Icons.remove, size: 20, color: Color(0xFF1F2937)),
+                                                                                      onPressed: () {
                                                                                         setState(() {
-                                                                                          _productUnitModes[product.id] = v;
+                                                                                          if (quantity > 1) {
+                                                                                            _productQuantities[product.id] = quantity - 1;
+                                                                                          }
                                                                                         });
-                                                                                      }
-                                                                                    },
+                                                                                      },
+                                                                                    ),
                                                                                   ),
+                                                                                  const SizedBox(width: 8),
+                                                                                  // Quantity input
+                                                                                  SizedBox(
+                                                                                    width: 72,
+                                                                                    height: 36,
+                                                                                    child: TextFormField(
+                                                                                      key: ValueKey('qty_${product.id}_$quantity'),
+                                                                                      textAlign: TextAlign.center,
+                                                                                      initialValue: quantity.toString(),
+                                                                                      keyboardType: TextInputType.number,
+                                                                                      inputFormatters: [
+                                                                                        FilteringTextInputFormatter.digitsOnly,
+                                                                                      ],
+                                                                                      decoration: InputDecoration(
+                                                                                        isDense: true,
+                                                                                        contentPadding: EdgeInsets.zero,
+                                                                                        border: OutlineInputBorder(
+                                                                                          borderRadius: BorderRadius.circular(8),
+                                                                                          borderSide: BorderSide(color: Colors.grey[300]!),
+                                                                                        ),
+                                                                                        enabledBorder: OutlineInputBorder(
+                                                                                          borderRadius: BorderRadius.circular(8),
+                                                                                          borderSide: BorderSide(color: Colors.grey[300]!),
+                                                                                        ),
+                                                                                        focusedBorder: OutlineInputBorder(
+                                                                                          borderRadius: BorderRadius.circular(8),
+                                                                                          borderSide: const BorderSide(color: Color(0xFF6366F1), width: 2),
+                                                                                        ),
+                                                                                        filled: true,
+                                                                                        fillColor: Colors.white,
+                                                                                        hintText: '0',
+                                                                                      ),
+                                                                                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                                                                      onChanged: (v) {
+                                                                                        setState(() {
+                                                                                          final n = int.tryParse(v);
+                                                                                          if (n != null && n > 0) {
+                                                                                            _productQuantities[product.id] = n;
+                                                                                          }
+                                                                                        });
+                                                                                      },
+                                                                                    ),
+                                                                                  ),
+                                                                                  const SizedBox(width: 8),
+                                                                                  // Plus button
+                                                                                  Container(
+                                                                                    width: 36,
+                                                                                    height: 36,
+                                                                                    decoration: BoxDecoration(
+                                                                                      color: const Color(0xFF6366F1),
+                                                                                      borderRadius: BorderRadius.circular(8),
+                                                                                    ),
+                                                                                    child: IconButton(
+                                                                                      padding: EdgeInsets.zero,
+                                                                                      icon: const Icon(Icons.add, size: 20, color: Colors.white),
+                                                                                      onPressed: () {
+                                                                                        setState(() {
+                                                                                          _productQuantities[product.id] = quantity + 1;
+                                                                                        });
+                                                                                      },
+                                                                                    ),
+                                                                                  ),
+                                                                                ],
+                                                                              ),
+                                                                              const SizedBox(height: 8),
+                                                                              // Unit dropdown on its own row
+                                                                              Container(
+                                                                                height: 36,
+                                                                                width: 120,
+                                                                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                                                                decoration: BoxDecoration(
+                                                                                  color: Colors.grey[100],
+                                                                                  borderRadius: BorderRadius.circular(8),
+                                                                                  border: Border.all(color: Colors.grey[300]!),
+                                                                                ),
+                                                                                child: DropdownButton<String>(
+                                                                                  value: unitMode,
+                                                                                  isExpanded: true,
+                                                                                  underline: const SizedBox(),
+                                                                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
+                                                                                  items: const [
+                                                                                    DropdownMenuItem(value: 'piece', child: Text('Ширхэг')),
+                                                                                    DropdownMenuItem(value: 'box', child: Text('Хайрцаг')),
+                                                                                  ],
+                                                                                  onChanged: (v) {
+                                                                                    if (v != null) {
+                                                                                      setState(() {
+                                                                                        _productUnitModes[product.id] = v;
+                                                                                      });
+                                                                                    }
+                                                                                  },
                                                                                 ),
                                                                               ),
                                                                             ],
