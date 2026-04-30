@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Backend Test - Phone</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <h1>Backend Connection Test</h1>
+    <p>Энэ хуудас нь утаснаас backend серверт хандах боломжтой эсэхийг шалгана.</p>
+    
+    <div>
+        <label>Backend URL:</label>
+        <input type="text" id="backendUrl" value="http://192.168.1.6:3000" style="width: 100%; padding: 5px; margin: 5px 0;">
+    </div>
+    
+    <div>
+        <button onclick="testRoot()">1. Root Endpoint Test</button>
+        <button onclick="testProducts()">2. Products API Test</button>
+        <button onclick="testLogin()">3. Login API Test</button>
+    </div>
+    
+    <div id="result"></div>
+
+    <script>
+        const backendUrl = document.getElementById('backendUrl');
+        const resultDiv = document.getElementById('result');
+
+        function showResult(message, isSuccess) {
+            resultDiv.textContent = message;
+            resultDiv.className = isSuccess ? 'success' : 'error';
+        }
+
+        async function testRoot() {
+            const url = backendUrl.value;
+            showResult('Testing root endpoint...', true);
+            
+            try {
+                const response = await fetch(url);
+                const text = await response.text();
+                showResult(`✅ SUCCESS!\n\nStatus: ${response.status}\nResponse: ${text}`, true);
+            } catch (error) {
+                showResult(`❌ ERROR!\n\n${error.message}\n\nMake sure:\n1. Backend server is running\n2. Phone and computer are on same WiFi\n3. IP address is correct`, false);
+            }
+        }
+
+        async function testProducts() {
+            const url = backendUrl.value + '/api/products';
+            showResult('Testing products endpoint...', true);
+            
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                showResult(`✅ SUCCESS!\n\nStatus: ${response.status}\nResponse:\n${JSON.stringify(data, null, 2)}`, true);
+            } catch (error) {
+                showResult(`❌ ERROR!\n\n${error.message}\n\nNote: Products endpoint may require authentication token.`, false);
+            }
+        }
+
+        async function testLogin() {
+            const url = backendUrl.value + '/api/auth/login';
+            showResult('Testing login endpoint...', true);
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        identifier: 'admin@admin.com',
+                        password: 'password'
+                    })
+                });
+                const data = await response.json();
+                showResult(`✅ SUCCESS!\n\nStatus: ${response.status}\nResponse:\n${JSON.stringify(data, null, 2)}`, true);
+            } catch (error) {
+                showResult(`❌ ERROR!\n\n${error.message}`, false);
+            }
+        }
+
+        // Auto-update backend URL
+        backendUrl.addEventListener('change', function() {
+            localStorage.setItem('backendUrl', this.value);
+        });
+
+        // Load saved URL
+        const savedUrl = localStorage.getItem('backendUrl');
+        if (savedUrl) {
+            backendUrl.value = savedUrl;
+        }
+    </script>
+</body>
+</html>

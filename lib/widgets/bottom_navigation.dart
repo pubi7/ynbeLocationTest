@@ -1,0 +1,136 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+
+class BottomNavigationWidget extends StatelessWidget {
+  const BottomNavigationWidget({
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final role = context.watch<AuthProvider>().userRole;
+    // GoRouterState.of(context) нь MaterialApp/theme-д дахин build хийх үед
+    // ModalRoute/GoRouterState scope алдагдаж доод навигац “дуурайхгүй” болчихдог.
+    // Иймээс маршрутыг GoRouter delegate-ээс уншина.
+    final goRouter = GoRouter.of(context);
+    return AnimatedBuilder(
+      animation: goRouter.routeInformationProvider,
+      builder: (context, _) {
+        final currentRoute =
+            goRouter.routerDelegate.currentConfiguration.uri.path;
+        return _buildRoleBottomNav(context, role, currentRoute);
+      },
+    );
+  }
+
+  Widget _buildRoleBottomNav(
+      BuildContext context, String role, String currentRoute) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(
+                alpha: scheme.brightness == Brightness.dark ? 0.35 : 0.08),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildBottomNavItem(
+                context,
+                'Dashboard',
+                Icons.dashboard_rounded,
+                const Color(0xFF6366F1),
+                '/sales-dashboard',
+                currentRoute == '/sales-dashboard',
+              ),
+              if (role != 'order')
+                _buildBottomNavItem(
+                  context,
+                  'Sales',
+                  Icons.sell_rounded,
+                  const Color(0xFF10B981),
+                  '/sales-entry',
+                  currentRoute == '/sales-entry',
+                ),
+              if (role == 'order')
+                _buildBottomNavItem(
+                  context,
+                  'Orders',
+                  Icons.shopping_cart_rounded,
+                  const Color(0xFF3B82F6),
+                  '/sales-orders',
+                  currentRoute == '/sales-orders',
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomNavItem(
+    BuildContext context,
+    String label,
+    IconData icon,
+    Color color,
+    String route,
+    bool isActive,
+  ) {
+    return Expanded(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => context.go(route),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+            decoration: BoxDecoration(
+              color:
+                  isActive ? color.withValues(alpha: 0.12) : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: isActive
+                        ? color.withValues(alpha: 0.22)
+                        : color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: isActive ? color : color.withValues(alpha: 0.75),
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                    color: isActive ? color : color.withValues(alpha: 0.75),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

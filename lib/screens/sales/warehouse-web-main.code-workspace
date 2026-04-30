@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../../../../warehouse-web-main"
+		},
+		{
+			"path": "../../../../../warehouse-service-main"
+		},
+		{
+			"path": "../../../.."
+		}
+	],
+	"settings": {}
+}

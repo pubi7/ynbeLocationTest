@@ -1,0 +1,77 @@
+name: aguulgav3
+description: A Flutter mobile app for business management with GPS tracking, sales, and order management.
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # State Management
+  provider: ^6.1.1
+  
+  # Navigation
+  go_router: ^12.1.3
+  
+  # Location & Maps
+  geolocator: ^10.1.0
+  geocoding: ^2.1.1
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.1
+  
+  # HTTP & API
+  http: ^1.1.0
+  dio: ^5.5.0
+  
+  # Local Storage
+  shared_preferences: ^2.2.2
+  sqflite: ^2.3.0
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  
+  # UI Components
+  cupertino_icons: ^1.0.6
+  material_design_icons_flutter: ^7.0.7296
+  
+  # Forms & Validation
+  form_field_validator: ^1.1.0
+  
+  # Date & Time
+  intl: ^0.19.0
+  table_calendar: ^3.0.9
+  
+  # Printing
+  printing: ^5.12.0
+  pdf: ^3.10.7
+  barcode: ^2.2.6
+  qr_flutter: ^4.1.0
+  barcode_widget: ^2.0.4
+  path_provider: ^2.1.1
+  
+  # URL Launcher
+  url_launcher: ^6.2.5
+  print_bluetooth_thermal: ^1.1.9
+  esc_pos_utils_plus: ^2.0.4
+  permission_handler: ^11.3.1
+  screenshot: ^3.0.0
+  image: ^4.8.0
+  local_auth: ^2.2.0
+  image_picker: ^1.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/icons/
+

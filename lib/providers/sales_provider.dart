@@ -1,0 +1,190 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../models/sales_model.dart';
+
+class SalesProvider extends ChangeNotifier {
+  static const String _prefsKey = 'sales_records_v1';
+
+  List<Sales> _sales = [];
+  bool _isLoading = false;
+  String? _error;
+
+  List<Sales> get sales => _sales;
+  bool get isLoading => _isLoading;
+  String? get error => _error;
+
+  SalesProvider() {
+    _sales = [];
+    Future.microtask(_restoreFromDisk);
+  }
+
+  Future<void> _restoreFromDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefsKey);
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return;
+      final loaded = <Sales>[];
+      for (final item in decoded) {
+        if (item is Map) {
+          try {
+            loaded.add(Sales.fromJson(Map<String, dynamic>.from(item)));
+          } catch (_) {}
+        }
+      }
+      _sales = loaded;
+      notifyListeners();
+    } catch (_) {
+      // Хэрэглэгчийн орон нутгийн борлуулалтын түүх уншихад алдаа гарвал үлдэгдэлгүй үлдэнэ.
+    }
+  }
+
+  Future<void> _persistToDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _prefsKey,
+        jsonEncode(_sales.map((s) => s.toJson()).toList()),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> addSale(Sales sale) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      _sales.insert(0, sale);
+      _isLoading = false;
+      notifyListeners();
+      await _persistToDisk();
+    } catch (e) {
+      _error = 'Error adding sale: $e';
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateSale(Sales sale) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final index = _sales.indexWhere((s) => s.id == sale.id);
+      if (index != -1) {
+        _sales[index] = sale;
+      }
+      _isLoading = false;
+      notifyListeners();
+      await _persistToDisk();
+    } catch (e) {
+      _error = 'Error updating sale: $e';
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteSale(String saleId) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      _sales.removeWhere((sale) => sale.id == saleId);
+      _isLoading = false;
+      notifyListeners();
+      await _persistToDisk();
+    } catch (e) {
+      _error = 'Error deleting sale: $e';
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  List<Sales> getSalesByDateRange(DateTime startDate, DateTime endDate) {
+    return _sales.where((sale) {
+      // Inclusive start, exclusive end
+      return !sale.saleDate.isBefore(startDate) &&
+          sale.saleDate.isBefore(endDate);
+    }).toList();
+  }
+
+  List<Sales> getSalesByLocation(String location) {
+    return _sales
+        .where((sale) =>
+            sale.location.toLowerCase().contains(location.toLowerCase()))
+        .toList();
+  }
+
+  double getTotalSales() {
+    return _sales.fold(0.0, (sum, sale) => sum + sale.amount);
+  }
+
+  double getTotalSalesForRange(DateTime startInclusive, DateTime endExclusive) {
+    return _sales
+        .where((s) =>
+            !s.saleDate.isBefore(startInclusive) &&
+            s.saleDate.isBefore(endExclusive))
+        .fold(0.0, (sum, s) => sum + s.amount);
+  }
+
+  double getTotalSalesForDay(DateTime day) {
+    final start = DateTime(day.year, day.month, day.day);
+    final end = start.add(const Duration(days: 1));
+    return getTotalSalesForRange(start, end);
+  }
+
+  double getTotalSalesForWeek(DateTime dayInWeek,
+      {int weekStartsOn = DateTime.monday}) {
+    // weekStartsOn should be DateTime.monday..DateTime.sunday
+    final day = DateTime(dayInWeek.year, dayInWeek.month, dayInWeek.day);
+    final diff = (day.weekday - weekStartsOn) % 7;
+    final start = day.subtract(Duration(days: diff));
+    final end = start.add(const Duration(days: 7));
+    return getTotalSalesForRange(start, end);
+  }
+
+  double getTotalSalesForMonth(DateTime dayInMonth) {
+    final start = DateTime(dayInMonth.year, dayInMonth.month, 1);
+    final end = DateTime(dayInMonth.year, dayInMonth.month + 1, 1);
+    return getTotalSalesForRange(start, end);
+  }
+
+  /// Returns totals grouped by hour (0..23) for the given day.
+  /// Missing hours will not be present in the map (treat as 0).
+  Map<int, double> getTotalSalesByHourForDay(DateTime day) {
+    final start = DateTime(day.year, day.month, day.day);
+    final end = start.add(const Duration(days: 1));
+    final Map<int, double> totals = {};
+    for (final s in _sales) {
+      if (!s.saleDate.isBefore(start) && s.saleDate.isBefore(end)) {
+        final h = s.saleDate.hour;
+        totals[h] = (totals[h] ?? 0) + s.amount;
+      }
+    }
+    return totals;
+  }
+
+  /// Returns totals grouped by day (DateTime at midnight) for the range.
+  /// Missing days will not be present in the map (treat as 0).
+  Map<DateTime, double> getTotalSalesByDayForRange(
+      DateTime startInclusive, DateTime endExclusive) {
+    final Map<DateTime, double> totals = {};
+    for (final s in _sales) {
+      if (!s.saleDate.isBefore(startInclusive) &&
+          s.saleDate.isBefore(endExclusive)) {
+        final d = DateTime(s.saleDate.year, s.saleDate.month, s.saleDate.day);
+        totals[d] = (totals[d] ?? 0) + s.amount;
+      }
+    }
+    return totals;
+  }
+
+  void clearError() {
+    _error = null;
+    notifyListeners();
+  }
+}
