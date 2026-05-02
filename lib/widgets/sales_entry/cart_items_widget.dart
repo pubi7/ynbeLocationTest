@@ -70,15 +70,24 @@ class _CartItemsWidgetState extends State<CartItemsWidget> {
     return '$free ш';
   }
 
-  /// Хайрцаг сонгосон бол жагсаалтад: **оруулсан хайрцаг × 1 хайрцагийн ширхэг** (+ урамшууллаар
-  /// item.quantity их бол түүнийг нийт гэж үзнэ).
+  /// «Тоо (ш)» = **төлөх** ширхэг; 1+1 зэрэгт үнэгүйг «Бэлэг»-д тусад нь (нийтийг энд оруулахгүй).
   static String _quantityCellLabel(SalesItem item) {
+    final paid =
+        PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(item);
+    final free = (item.quantity - paid).clamp(0, item.quantity);
+
     final upb = item.unitsPerBox <= 0 ? 1 : item.unitsPerBox;
     if (item.orderedUnit == 'box' && upb > 1) {
       final fromBoxes = item.orderedQuantity * upb;
       final totalPieces =
           item.quantity > fromBoxes ? item.quantity : fromBoxes;
+      if (free > 0) {
+        return '$paid ш';
+      }
       return '$totalPieces ш (${item.orderedQuantity} хайрцаг)';
+    }
+    if (free > 0) {
+      return '$paid ш';
     }
     return '${item.quantity} ш';
   }
@@ -184,13 +193,24 @@ class _CartItemsWidgetState extends State<CartItemsWidget> {
           const SizedBox(height: 12),
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: Table(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Нарийн дэлгэц: хүснэгийг хэвтээ гүйлгэнэ; багана «1…» болж багтахгүй болохоос сэргийлнэ.
+                final minTableW = constraints.maxWidth < 420
+                    ? 420.0
+                    : constraints.maxWidth;
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  primary: false,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: minTableW),
+                    child: Table(
               columnWidths: const {
-                0: FlexColumnWidth(1.85),
-                1: FlexColumnWidth(1.05),
-                2: FlexColumnWidth(0.65),
-                3: FlexColumnWidth(0.8),
-                4: FlexColumnWidth(1.2),
+                0: FlexColumnWidth(1.75),
+                1: FlexColumnWidth(1.0),
+                2: FlexColumnWidth(0.85),
+                3: FlexColumnWidth(0.95),
+                4: FlexColumnWidth(1.15),
               },
               defaultVerticalAlignment: TableCellVerticalAlignment.middle,
               children: [
@@ -201,8 +221,8 @@ class _CartItemsWidgetState extends State<CartItemsWidget> {
                   children: const [
                     _TableHeaderCell('Бараа'),
                     _TableHeaderCell('Нэгж үнэ'),
-                    _TableHeaderCell('Бэлэг (ш)'),
                     _TableHeaderCell('Тоо (ш)'),
+                    _TableHeaderCell('Бэлэг'),
                     _TableHeaderCell('Нийт'),
                   ],
                 ),
@@ -351,34 +371,6 @@ class _CartItemsWidgetState extends State<CartItemsWidget> {
                         },
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 10,
-                          ),
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: Text(
-                              bilgeLabel,
-                              textAlign: TextAlign.right,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800,
-                                color: bilgeLabel == '—'
-                                    ? const Color(0xFF9CA3AF)
-                                    : const Color(0xFF7C3AED),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      InkWell(
-                        onTap: () async {
-                          setState(() => _selectedIndex = index);
-                          await _openEditDialog(context, index);
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
                             horizontal: 10,
                             vertical: 10,
                           ),
@@ -393,6 +385,37 @@ class _CartItemsWidgetState extends State<CartItemsWidget> {
                                 fontSize: 13,
                                 fontWeight: FontWeight.w800,
                                 color: Color(0xFF111827),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () async {
+                          setState(() => _selectedIndex = index);
+                          await _openEditDialog(context, index);
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 10,
+                          ),
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerRight,
+                              child: Text(
+                                bilgeLabel,
+                                textAlign: TextAlign.right,
+                                maxLines: 1,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  color: bilgeLabel == '—'
+                                      ? const Color(0xFF9CA3AF)
+                                      : const Color(0xFF7C3AED),
+                                ),
                               ),
                             ),
                           ),
@@ -426,9 +449,13 @@ class _CartItemsWidgetState extends State<CartItemsWidget> {
               ],
             ),
           ),
+        );
+              },
+            ),
+          ),
           const SizedBox(height: 10),
           Text(
-            'Дүрмийн тайлбар: мөр дээр дарж засна. «Тоо (ш)» = нийт авсан ширхэг (төлөх+үнэгүй). «Бэлэг (ш)» = 1+1 зэргээр үнэгүй хэсэг. «Нийт» = төлбөрт орох дүн. Сервер руу нийт ширхэг + paidQuantity/freeQuantity илгээгдэнэ.',
+            'Дүрмийн тайлбар: мөр дээр дарж засна. «Тоо (ш)» = зөвхөн төлөх ширхэг; «Бэлэг» = 1+1 зэргээр үнэгүй ширхэг. «Нийт» = төлбөрт орох дүн. Доош/хэвтээ гүйлгэнэ. Сервер руу quantity/paidQuantity = төлөх, freeQuantity = үнэгүй.',
             style: TextStyle(fontSize: 11, color: Colors.grey[600]),
           ),
           Divider(color: Colors.grey[200], height: 22),

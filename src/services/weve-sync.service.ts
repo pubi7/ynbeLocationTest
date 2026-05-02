@@ -231,12 +231,22 @@ class WeveSyncService {
           const unit = parseFloat(item.unitPrice.toString());
           const qty = Math.max(0, Math.floor(Number(item.quantity)) || 0);
           let free = Math.max(0, Math.floor(Number(item.freeQuantity ?? 0)) || 0);
-          if (free > qty) free = qty;
-          const paid = qty - free;
+          const paidCol = (item as { paidQuantity?: unknown }).paidQuantity;
+          const hasPaidCol =
+            paidCol !== null &&
+            paidCol !== undefined &&
+            !Number.isNaN(Number(paidCol));
+          const paid = hasPaidCol
+            ? Math.max(0, Math.floor(Number(paidCol)))
+            : (() => {
+                if (free > qty) free = qty;
+                return Math.max(0, qty - free);
+              })();
+          const totalPieces = paid + free;
           return {
             productId: item.product.id,
             productCode: item.product.productCode || undefined,
-            quantity: item.quantity,
+            quantity: totalPieces,
             paidQuantity: paid,
             freeQuantity: free,
             unitPrice: unit,

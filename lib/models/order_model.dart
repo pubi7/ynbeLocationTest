@@ -174,23 +174,34 @@ class OrderItem {
   }
 
   factory OrderItem.fromJson(Map<String, dynamic> json) {
-    final qty = (json['quantity'] as num?)?.toInt() ?? 0;
+    final qtyWire = (json['quantity'] as num?)?.toInt() ?? 0;
+    final paidWireRaw = (json['paidQuantity'] as num?)?.toInt();
+    var fq = (json['freeQuantity'] as num?)?.toInt() ?? 0;
+    if (fq < 0) fq = 0;
+    late final int quantityTotal;
+    if (paidWireRaw != null) {
+      final paid = paidWireRaw < 0 ? 0 : paidWireRaw;
+      quantityTotal = paid + fq;
+    } else {
+      if (fq > qtyWire) fq = qtyWire;
+      quantityTotal = qtyWire;
+    }
     final upb = (json['unitsPerBox'] as num?)?.toInt() ?? 1;
     final ou = (json['orderedUnit']?.toString() ?? 'piece').trim();
     int? oq = (json['orderedQuantity'] as num?)?.toInt();
     if (oq == null && ou == 'box' && upb > 1) {
-      oq = qty ~/ upb;
+      oq = quantityTotal ~/ upb;
     }
     return OrderItem(
       productId: json['productId'].toString(),
       productName: json['productName'].toString(),
-      quantity: qty,
+      quantity: quantityTotal,
       unitPrice: (json['unitPrice'] as num).toDouble(),
       totalPrice: (json['totalPrice'] as num).toDouble(),
       unitsPerBox: upb,
       orderedUnit: ou.isEmpty ? 'piece' : ou,
       orderedQuantity: oq,
-      freeQuantity: (json['freeQuantity'] as num?)?.toInt() ?? 0,
+      freeQuantity: fq,
     );
   }
 

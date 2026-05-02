@@ -114,30 +114,40 @@ class OrderProvider extends ChangeNotifier {
           final product = itemMap['product'] as Map<String, dynamic>?;
           final unitPrice =
               double.tryParse(itemMap['unitPrice']?.toString() ?? '0') ?? 0.0;
-          final qty = (itemMap['quantity'] as num?)?.toInt() ?? 0;
+          final qtyWire = (itemMap['quantity'] as num?)?.toInt() ?? 0;
+          final paidWireRaw = (itemMap['paidQuantity'] as num?)?.toInt();
           final upbRaw = (itemMap['unitsPerBox'] as num?)?.toInt() ??
               (product?['unitsPerBox'] as num?)?.toInt() ??
               1;
           final upb = upbRaw <= 0 ? 1 : upbRaw;
           final freeQRaw = (itemMap['freeQuantity'] as num?)?.toInt() ?? 0;
-          final cappedFree =
-              freeQRaw < 0 ? 0 : (freeQRaw > qty ? qty : freeQRaw);
-          final paidPieces = qty - cappedFree;
+          var cappedFree = freeQRaw < 0 ? 0 : freeQRaw;
+          late final int paidPieces;
+          late final int quantityTotalPieces;
+          if (paidWireRaw != null) {
+            // Шинэ: `quantity` = зөвхөн төлөх; нийт физик = paidQuantity + freeQuantity.
+            paidPieces = paidWireRaw < 0 ? 0 : paidWireRaw;
+            quantityTotalPieces = paidPieces + cappedFree;
+          } else {
+            // Хуучин: `quantity` = нийт (төлөх+үнэгүй).
+            if (cappedFree > qtyWire) cappedFree = qtyWire;
+            paidPieces = qtyWire - cappedFree;
+            quantityTotalPieces = qtyWire;
+          }
           int? orderedQty = (itemMap['orderedQuantity'] as num?)?.toInt();
           final ouRaw =
               (itemMap['orderedUnit']?.toString() ?? 'piece').trim();
           final ou = ouRaw.isEmpty ? 'piece' : ouRaw;
           if (orderedQty == null && ou == 'box' && upb > 1) {
-            orderedQty = qty ~/ upb;
+            orderedQty = quantityTotalPieces ~/ upb;
           }
 
           return OrderItem(
             productId: (itemMap['productId'] ?? '').toString(),
             productName:
                 product?['nameMongolian']?.toString() ?? 'Unknown Product',
-            quantity: qty,
+            quantity: quantityTotalPieces,
             unitPrice: unitPrice,
-            // [quantity] = нийт ширхэг (төлөх+үнэгүй) үед зөвхөн төлөхөөр үржүүлнэ.
             totalPrice: unitPrice * (paidPieces < 0 ? 0 : paidPieces),
             unitsPerBox: upb,
             orderedUnit: ou,

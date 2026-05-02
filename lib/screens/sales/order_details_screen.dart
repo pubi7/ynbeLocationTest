@@ -1159,12 +1159,22 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                it.pieceQuantitySubtitle,
+                                'Төлөх: ${it.paidQuantity} ш',
                                 style: TextStyle(
                                   color: Colors.grey.shade700,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
+                              if (it.freeQuantity > 0) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Бэлэг: +${it.freeQuantity} ш',
+                                  style: TextStyle(
+                                    color: Colors.green.shade700,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),

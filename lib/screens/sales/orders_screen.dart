@@ -286,6 +286,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
     setState(() {
       _selectedDay = DateUtils.dateOnly(picked);
     });
+    await _refreshOrders();
   }
 
   Future<void> _loadLocalPrintedOrderIds() async {
@@ -299,8 +300,12 @@ class _OrdersScreenState extends State<OrdersScreen> {
     final warehouseProvider =
         Provider.of<WarehouseProvider>(context, listen: false);
     if (warehouseProvider.connected) {
-      await Provider.of<OrderProvider>(context, listen: false)
-          .fetchOrders(warehouseProvider.dio);
+      // Нэвтрэхэд болон өдөр солиход: тухайн өдрийнхийг л татна.
+      await Provider.of<OrderProvider>(context, listen: false).fetchOrders(
+        warehouseProvider.dio,
+        startDate: _selectedDay,
+        endDate: _selectedDay,
+      );
     }
     if (mounted) await _loadLocalPrintedOrderIds();
   }
@@ -337,7 +342,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
     try {
       await warehouse.updateOrderStatus(orderId: oid, status: 'Fulfilled');
-      await orders.fetchOrders(warehouse.dio);
+      await orders.fetchOrders(
+        warehouse.dio,
+        startDate: _selectedDay,
+        endDate: _selectedDay,
+      );
       if (mounted) await _loadLocalPrintedOrderIds();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -414,7 +423,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
       await warehouse.updateOrderStatus(orderId: oid, status: 'Fulfilled');
 
       // 4) Жагсаалтыг шинэчилнэ
-      await orders.fetchOrders(warehouse.dio);
+      await orders.fetchOrders(
+        warehouse.dio,
+        startDate: _selectedDay,
+        endDate: _selectedDay,
+      );
       if (mounted) await _loadLocalPrintedOrderIds();
     } catch (e) {
       if (mounted) {
@@ -676,10 +689,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       ),
                       IconButton(
                         tooltip: 'Өнөөдөр',
-                        onPressed: () {
+                        onPressed: () async {
                           setState(() {
                             _selectedDay = DateUtils.dateOnly(DateTime.now());
                           });
+                          await _refreshOrders();
                         },
                         icon: const Icon(Icons.today_rounded),
                       ),

@@ -24,13 +24,14 @@ class WarehouseOrderBackendSubmitOneFile {
     List<String>? productNames,
   }) {
     if (!kDebugMode) return;
-    debugPrint('📋 Backend items: ${items.length} мөр (quantity=нийт төлөх+үнэгүй)');
+    debugPrint('📋 Backend items: ${items.length} мөр (totalPiecesForStock=үлдэгдлээс хасах нийт)');
     for (var i = 0; i < items.length; i++) {
       final m = items[i];
       final id = m['productId'];
       final q = m['quantity'];
       final paid = m['paidQuantity'];
       final free = m['freeQuantity'];
+      final tps = m['totalPiecesForStock'];
       final unit = m['unitPrice'];
       final line = m['lineTotal'];
       final mode = m['priceMode'];
@@ -39,30 +40,11 @@ class WarehouseOrderBackendSubmitOneFile {
           : '';
       final suffix = name.isNotEmpty ? ' — $name' : '';
       debugPrint(
-        '   [$i] productId=$id$suffix → quantity(нийт ш)=$q, paidQuantity=$paid, '
-        'freeQuantity=$free, unitPrice=$unit, lineTotal=$line'
+        '   [$i] productId=$id$suffix → quantity(төлөх ш)=$q, paidQuantity=$paid, '
+        'freeQuantity=$free, totalPiecesForStock=$tps, unitPrice=$unit, lineTotal=$line'
         '${mode != null ? ', priceMode=$mode' : ''}',
       );
     }
-  }
-
-  /// Сервер `grossAmount` дээр [extractVAT] (НӨАТ орсон дүн гэж) задалдаг.
-  /// Сагсны үнэ **НӨАТ-гүй** ([SalesItem.unitPriceExcludesVat]) бол нэгж/мөрийг +10% болгон илгээнэ.
-  static ({double unit, double line}) _apiGrossUnitAndLineIfNet({
-    required SalesItem item,
-    required double unit,
-    required double line,
-  }) {
-    if (!item.unitPriceExcludesVat) {
-      return (
-        unit: unit,
-        line: PromotionPricingUtils.roundMoney2(line),
-      );
-    }
-    return (
-      unit: PromotionPricingUtils.roundMoney2(unit * 1.1),
-      line: PromotionPricingUtils.roundMoney2(line * 1.1),
-    );
   }
 
   /// Note талбарт "10%" гэх мэт бичвэл order-level хөнгөлөлтийн хувь.
@@ -103,6 +85,9 @@ class WarehouseOrderBackendSubmitOneFile {
   }
 
   /// Худалдааны оролтын сагс (`SalesItem`) → `createOrder` items array.
+  ///
+  /// `quantity` болон `paidQuantity` = **төлөх** ширхэг; `freeQuantity` = үнэгүй.
+  /// **Үлдэгдэл хасах:** `totalPiecesForStock` = төлөх + үнэгүй = сагсны нийт физик ширхэг.
   static List<Map<String, dynamic>> buildItemsFromSalesCart(
     List<SalesItem> selectedItems, {
     required bool applyDiscountFromNotes,
@@ -119,7 +104,9 @@ class WarehouseOrderBackendSubmitOneFile {
       }
       final paidWire =
           PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(item);
-      final freeWire = (item.quantity - paidWire).clamp(0, item.quantity);
+      // free <= total - paid (invariant)
+      final rawFree = item.quantity - paidWire;
+      final freeWire = rawFree <= 0 ? 0 : rawFree;
       final tierBase =
           PromotionPricingUtils.cartWideBillablePaidPiecesSum(selectedItems);
       final cartBulkMult =
@@ -144,20 +131,30 @@ class WarehouseOrderBackendSubmitOneFile {
               noteMultiplier: noteMultiplier,
               cartBulkMultiplier: cartBulkMult,
             );
-      final gross = _apiGrossUnitAndLineIfNet(
-        item: item,
-        unit: unit,
-        line: lineTotal,
-      );
+      // `lineTotal` нь сагсны тооцоолсон эцсийн мөрийн дүн. Weve/backend-д нэгж үнэ нь
+      // үргэлж `unitPrice * paidQuantity == lineTotal` байх ёстой тул line-аас гаргана.
+      final apiUnit = (paidWire > 0)
+          ? PromotionPricingUtils.roundMoney2(lineTotal / paidWire)
+          : PromotionPricingUtils.roundMoney2(unit);
+      // Weve site дээр unitPrice-ийг каталогийн үнээр дахин бодож "үндсэн үнэ" гарахаас сэргийлнэ.
+      // Хямдрал (tier 3%/5%, notes %, net→gross) болон 1+1 (үнэгүй) мөрүүдийг
+      // backend-д "гараар үнэ" гэж тэмдэглүүлэхээр custom горим ашиглана.
+      final shouldCustomPrice =
+          freeWire > 0 ||
+          noteMultiplier != 1.0 ||
+          cartBulkMult != 1.0 ||
+          item.finalUnitPrice != null;
       return <String, dynamic>{
         'productId': productId,
-        'quantity': item.quantity,
+        // Сервер `quantity` = зөвхөн төлөх ширхэг; үлдэгдлээс хасах нийт = totalPiecesForStock.
+        'quantity': paidWire,
         'paidQuantity': paidWire,
         'freeQuantity': freeWire,
-        'unitPrice': gross.unit,
-        'lineTotal': gross.line,
-        // Сервер `auto`-оор каталогийн үнээр дахин бодохгүй — зөвхөн үнэгүйтэй BOGO мөр.
-        if (freeWire > 0) 'priceMode': 'custom',
+        'totalPiecesForStock': item.quantity,
+        'unitPrice': apiUnit,
+        // Custom mode үед backend каталогийн үнээр дахин бодохгүй.
+        'lineTotal': PromotionPricingUtils.roundMoney2(lineTotal),
+        if (shouldCustomPrice) 'priceMode': 'custom',
       };
     }).toList();
   }
@@ -175,12 +172,17 @@ class WarehouseOrderBackendSubmitOneFile {
       final lineTotal = PromotionPricingUtils.roundMoney2(
         item.unitPrice * paid,
       );
+      final apiUnit = (paid > 0)
+          ? PromotionPricingUtils.roundMoney2(lineTotal / paid)
+          : PromotionPricingUtils.roundMoney2(item.unitPrice);
+      final maxFree = item.quantity - paid;
       return <String, dynamic>{
         'productId': productId,
-        'quantity': item.quantity,
+        'quantity': paid,
         'paidQuantity': paid,
-        if (item.freeQuantity > 0) 'freeQuantity': item.freeQuantity,
-        'unitPrice': item.unitPrice,
+        'freeQuantity': item.freeQuantity.clamp(0, maxFree < 0 ? 0 : maxFree),
+        'totalPiecesForStock': item.quantity,
+        'unitPrice': apiUnit,
         'lineTotal': lineTotal,
       };
     }).toList();

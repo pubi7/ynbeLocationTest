@@ -278,28 +278,100 @@ app.get('/api/orders', async (req, res) => {
     }
 });
 
+/** Мобайлын items → warehouse: тоо бүтэн бүхэл, үнэгүйг алдахгүй; зарим Prisma snake_case уншдаг тул талбар хувилна. */
+function normalizeOrderItemsForWarehouse(items) {
+    if (!Array.isArray(items)) return [];
+    return items.map((row) => {
+        if (!row || typeof row !== 'object') return row;
+        const r = { ...row };
+        if (r.quantity != null) {
+            r.quantity = Math.max(0, Math.floor(Number(r.quantity)) || 0);
+        }
+        const fqRaw = r.freeQuantity;
+        r.freeQuantity =
+            fqRaw == null || fqRaw === ''
+                ? 0
+                : Math.max(0, Math.floor(Number(fqRaw)) || 0);
+        if (r.paidQuantity != null && r.paidQuantity !== '') {
+            r.paidQuantity = Math.max(0, Math.floor(Number(r.paidQuantity)) || 0);
+        }
+        const q = r.quantity != null ? Math.max(0, Math.floor(Number(r.quantity)) || 0) : 0;
+        const fq = r.freeQuantity;
+        const pq =
+            r.paidQuantity != null && r.paidQuantity !== ''
+                ? Math.max(0, Math.floor(Number(r.paidQuantity)) || 0)
+                : null;
+        // Үлдэгдэл хасах нийт: эхлээд client-ийн totalPiecesForStock; үгүй бол wire-ийг ялгана.
+        // Алдааны мессеж гардаггүй — буруу тооцоолол зөвхөн буруу totalPiecesForStock өгнө (warehouse талд илэрнэ).
+        let tps = r.totalPiecesForStock;
+        if (tps != null && tps !== '') {
+            r.totalPiecesForStock = Math.max(0, Math.floor(Number(tps)) || 0);
+        } else if (fq <= 0) {
+            r.totalPiecesForStock = q;
+        } else if (pq != null && pq < q) {
+            // Хуучин: quantity = нийт физик (төлөх+үнэгүй), paidQuantity < quantity.
+            r.totalPiecesForStock = q;
+        } else if (pq != null && pq === q) {
+            // Шинэ: quantity = төлөх = paidQuantity, үнэгүй тусад → нийт = q + fq.
+            r.totalPiecesForStock = q + fq;
+        } else if (pq == null && q > fq) {
+            // paidQuantity ирээгүй, quantity нь үнэгүйгээс их → нийт нь q гэж үзнэ.
+            r.totalPiecesForStock = q;
+        } else if (pq == null && q <= fq && q === fq && q >= 2) {
+            // quantity == free (ж: 2=2) — нийт физик q, q+fq биш (давхар тоолохгүй).
+            r.totalPiecesForStock = q;
+        } else if (pq == null && fq > 0) {
+            // Ж: paidQuantity алдсан шинэ мөр q=1 fq=1.
+            r.totalPiecesForStock = q + fq;
+        } else {
+            r.totalPiecesForStock = q;
+        }
+        r.total_pieces_for_stock = r.totalPiecesForStock;
+        r.free_quantity = r.freeQuantity;
+        if (r.paidQuantity != null) r.paid_quantity = r.paidQuantity;
+        if (r.productId != null) r.product_id = r.productId;
+        if (r.unitPrice != null) r.unit_price = r.unitPrice;
+        if (r.lineTotal != null) r.line_total = r.lineTotal;
+        if (r.priceMode != null) r.price_mode = r.priceMode;
+        return r;
+    });
+}
+
 app.post('/api/orders', async (req, res) => {
     console.log('Creating order in Warehouse API:', req.body);
-    const { customerId, items, orderType, paymentMethod, deliveryDate, creditTermDays, allowInsufficientStock } = req.body;
+    const {
+        customerId,
+        items,
+        orderType,
+        paymentMethod,
+        deliveryDate,
+        creditTermDays,
+        allowInsufficientStock,
+        notes,
+        userWeveToken,
+    } = req.body;
     
     try {
-        // If mobile didn't send deliveryDate, compute from role (decoded from JWT).
-        const role = getRoleFromRequest(req);
-        const computedDeliveryDate = deliveryDate || computeDeliveryDateForWeb(role);
-        if (!deliveryDate && computedDeliveryDate) {
-            console.log(`🧩 Computed deliveryDate for role="${role}": ${computedDeliveryDate}`);
-        }
+        // Mobile: хүргэлтийн өдөр = сервер дээр захиалга авсан өдөр (orderDate-ийн өдөр).
+        // deliveryDate ирсэн ч гэсэн нэг мөр логик: orderDate өдөртэй тэнцүү болгоно.
+        const orderDateIso = new Date().toISOString();
+        const receivedDay = orderDateIso.slice(0, 10); // YYYY-MM-DD
+        const computedDeliveryDate = receivedDay;
 
         const orderData = {
             customerId: customerId,
-            items: items || [],
+            items: normalizeOrderItemsForWarehouse(items || []),
             orderType: orderType || 'Store',
             paymentMethod: paymentMethod || 'Cash',
             deliveryDate: computedDeliveryDate || null,
             creditTermDays: creditTermDays || null,
-            orderDate: new Date().toISOString(),
+            orderDate: orderDateIso,
             source: 'aguulga3',
-            allowInsufficientStock: allowInsufficientStock === true
+            allowInsufficientStock: allowInsufficientStock === true,
+            ...(typeof notes === 'string' && notes.trim() !== '' ? { notes: notes.trim() } : {}),
+            ...(typeof userWeveToken === 'string' && userWeveToken.trim() !== ''
+                ? { userWeveToken: userWeveToken.trim() }
+                : {}),
         };
         
         const response = await axios.post(`${WAREHOUSE_API_URL}/orders`, orderData, {

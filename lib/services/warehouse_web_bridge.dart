@@ -1247,10 +1247,11 @@ class WarehouseWebBridge {
   ///   customerId: int,
   ///   items: [{
   ///     productId: int,
-  ///     quantity: int, // нийт ширхэг (төлөх+үнэгүй)
+  ///     quantity: int, // төлөх ширхэг
   ///     unitPrice: num,
   ///     paidQuantity?: int, // төлбөрт орох (1+1)
-  ///     freeQuantity?: int,
+  ///     freeQuantity?: int, // үнэгүй (тусад)
+  ///     totalPiecesForStock?: int, // үлдэгдлээс хасах = төлөх + үнэгүй (нийт физик)
   ///     lineTotal?: num, // төлбөрт зөвхөн төлөх дээр үндэслэсэн мөрийн дүн
   ///   }],
   ///   orderType?: 'Market' | 'Store',

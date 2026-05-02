@@ -1581,6 +1581,8 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         body: SingleChildScrollView(
         controller: _pageScrollController,
         padding: const EdgeInsets.all(12),
+        physics: const AlwaysScrollableScrollPhysics(),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         child: Form(
           key: _formKey,
           child: Column(
