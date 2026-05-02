@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:local_auth/error_codes.dart' as auth_error;
 
@@ -9,7 +10,12 @@ class BiometricAuthService {
     try {
       final supported = await _auth.isDeviceSupported();
       if (!supported) return false;
-      return await _auth.canCheckBiometrics;
+
+      final canCheck = await _auth.canCheckBiometrics;
+      if (!canCheck) return false;
+
+      final available = await _auth.getAvailableBiometrics();
+      return available.isNotEmpty;
     } catch (_) {
       return false;
     }
@@ -22,18 +28,25 @@ class BiometricAuthService {
         options: const AuthenticationOptions(
           biometricOnly: true,
           stickyAuth: true,
+          useErrorDialogs: true,
         ),
       );
+    } on PlatformException catch (e) {
+      if (kDebugMode) {
+        debugPrint('[BiometricAuth] PlatformException: ${e.code}');
+      }
+      switch (e.code) {
+        case auth_error.notAvailable:
+        case auth_error.notEnrolled:
+        case auth_error.lockedOut:
+        case auth_error.permanentlyLockedOut:
+          return false;
+        default:
+          return false;
+      }
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[BiometricAuth] authenticate error: $e');
-      }
-      // Treat some “not available” cases as false rather than crashing.
-      if (e.toString().contains(auth_error.notAvailable) ||
-          e.toString().contains(auth_error.notEnrolled) ||
-          e.toString().contains(auth_error.lockedOut) ||
-          e.toString().contains(auth_error.permanentlyLockedOut)) {
-        return false;
       }
       return false;
     }

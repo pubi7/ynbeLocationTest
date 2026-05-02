@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import '../models/order_model.dart';
+import '../utils/order_schedule_utils.dart';
 
 class OrderProvider extends ChangeNotifier {
   List<Order> _orders = [];
@@ -10,6 +11,33 @@ class OrderProvider extends ChangeNotifier {
   List<Order> get orders => _orders;
   bool get isLoading => _isLoading;
   String? get error => _error;
+
+  int? _retryAfterSeconds(DioException e) {
+    final v = e.response?.headers.value('retry-after');
+    if (v == null) return null;
+    return int.tryParse(v.trim());
+  }
+
+  String _userFriendlyFetchError(Object e) {
+    if (e is DioException) {
+      final code = e.response?.statusCode;
+      if (code == 429) {
+        final ra = _retryAfterSeconds(e);
+        if (ra != null && ra > 0) {
+          return 'Хэт олон хүсэлт илгээсэн (429). $ra секундын дараа дахин оролдоно уу.';
+        }
+        return 'Хэт олон хүсэлт илгээсэн. Түр хүлээгээд «Дахин оролдох» дарна уу.';
+      }
+      final data = e.response?.data;
+      if (data is Map && data['message'] != null) {
+        return data['message'].toString();
+      }
+      if (code != null) {
+        return 'Захиалга татахад алдаа гарлаа (код $code).';
+      }
+    }
+    return e.toString().split('\n').first;
+  }
 
   /// Fetch orders from backend API using the authenticated Dio instance
   /// [dio] - Dio instance from WarehouseWebBridge (already has auth token set)
@@ -36,10 +64,34 @@ class OrderProvider extends ChangeNotifier {
         params['endDate'] = _toDateStr(nextDay);
       }
 
-      final response = await dio.get<Map<String, dynamic>>(
-        'orders',
-        queryParameters: params,
-      );
+      const maxAttempts = 4;
+      Response<Map<String, dynamic>>? response;
+      for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          response = await dio.get<Map<String, dynamic>>(
+            'orders',
+            queryParameters: params,
+          );
+          break;
+        } on DioException catch (e) {
+          final status = e.response?.statusCode;
+          if (status == 429 && attempt < maxAttempts) {
+            final ra = _retryAfterSeconds(e);
+            final backoff = ra ?? (attempt * 2);
+            if (kDebugMode) {
+              debugPrint(
+                  '[OrderProvider] ⏳ 429 Too Many Requests, waiting ${backoff}s (attempt $attempt/$maxAttempts)');
+            }
+            await Future<void>.delayed(Duration(seconds: backoff));
+            continue;
+          }
+          rethrow;
+        }
+      }
+
+      if (response == null) {
+        throw Exception('Захиалга татаж чадсангүй.');
+      }
 
       final data = response.data;
       if (data == null) {
@@ -67,7 +119,10 @@ class OrderProvider extends ChangeNotifier {
               (product?['unitsPerBox'] as num?)?.toInt() ??
               1;
           final upb = upbRaw <= 0 ? 1 : upbRaw;
-          final freeQ = (itemMap['freeQuantity'] as num?)?.toInt() ?? 0;
+          final freeQRaw = (itemMap['freeQuantity'] as num?)?.toInt() ?? 0;
+          final cappedFree =
+              freeQRaw < 0 ? 0 : (freeQRaw > qty ? qty : freeQRaw);
+          final paidPieces = qty - cappedFree;
           int? orderedQty = (itemMap['orderedQuantity'] as num?)?.toInt();
           final ouRaw =
               (itemMap['orderedUnit']?.toString() ?? 'piece').trim();
@@ -82,11 +137,12 @@ class OrderProvider extends ChangeNotifier {
                 product?['nameMongolian']?.toString() ?? 'Unknown Product',
             quantity: qty,
             unitPrice: unitPrice,
-            totalPrice: unitPrice * qty,
+            // [quantity] = нийт ширхэг (төлөх+үнэгүй) үед зөвхөн төлөхөөр үржүүлнэ.
+            totalPrice: unitPrice * (paidPieces < 0 ? 0 : paidPieces),
             unitsPerBox: upb,
             orderedUnit: ou,
             orderedQuantity: orderedQty,
-            freeQuantity: freeQ < 0 ? 0 : (freeQ > qty ? qty : freeQ),
+            freeQuantity: cappedFree,
           );
         }).toList();
 
@@ -183,7 +239,7 @@ class OrderProvider extends ChangeNotifier {
       if (kDebugMode) {
         debugPrint('[OrderProvider] ❌ Захиалга татахад алдаа: $e');
       }
-      _error = 'Захиалга татахад алдаа гарлаа: $e';
+      _error = _userFriendlyFetchError(e);
       _isLoading = false;
       notifyListeners();
     }
@@ -231,11 +287,15 @@ class OrderProvider extends ChangeNotifier {
     return _orders[idx];
   }
 
-  List<Order> getOrdersByDateRange(DateTime startDate, DateTime endDate) {
+  /// [role]: [OrderScheduleUtils.effectiveOrderCalendarDay]-тай ижил дүрмээр өдөр тогтооно.
+  List<Order> getOrdersByDateRange(
+    DateTime startDate,
+    DateTime endDate, {
+    String role = '',
+  }) {
     return _orders.where((order) {
-      // Prefer scheduled delivery day when available.
-      // Use inclusive range: start <= date <= end.
-      final effective = order.deliveryDate ?? order.orderDate;
+      final effective =
+          OrderScheduleUtils.effectiveOrderCalendarDay(order, role: role);
       return !effective.isBefore(startDate) && !effective.isAfter(endDate);
     }).toList();
   }

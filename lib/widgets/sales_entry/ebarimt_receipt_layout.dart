@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../models/sales_item_model.dart';
+import '../../utils/promotion_pricing_utils.dart';
 import '../../utils/receipt_vat.dart';
 
 /// И-баримтын албан жишигт ойролцоо толгой + хүснэгт + дүн (preview болон raster-д хуваалцана).
@@ -59,6 +60,8 @@ class EbarimtReceiptLayout {
     required TextStyle small,
     required TextStyle headerStyle,
   }) {
+    final cartBulkEligiblePaid =
+        PromotionPricingUtils.cartWideBillablePaidPiecesSum(items);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -119,7 +122,16 @@ class EbarimtReceiptLayout {
               SizedBox(
                 width: 44,
                 child: Text(
-                  money0(items[i].receiptUnitGross),
+                  money0(
+                    PromotionPricingUtils.discountedUnitPrice(
+                      unitPrice: items[i].receiptUnitGross,
+                      cartBulkMultiplier:
+                          PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+                        item: items[i],
+                        eligiblePaidPiecesTotal: cartBulkEligiblePaid,
+                      ),
+                    ),
+                  ),
                   style: small,
                   textAlign: TextAlign.right,
                 ),
@@ -127,7 +139,17 @@ class EbarimtReceiptLayout {
               SizedBox(
                 width: 48,
                 child: Text(
-                  money0(items[i].receiptLineGross),
+                  money0(
+                    PromotionPricingUtils.lineTotalFromDiscountedUnit(
+                      unitPrice: items[i].receiptUnitGross,
+                      cartBulkMultiplier:
+                          PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+                        item: items[i],
+                        eligiblePaidPiecesTotal: cartBulkEligiblePaid,
+                      ),
+                      paidPieces: items[i].paidQuantity,
+                    ),
+                  ),
                   style: small,
                   textAlign: TextAlign.right,
                 ),

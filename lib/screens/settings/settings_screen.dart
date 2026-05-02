@@ -13,6 +13,7 @@ import '../../providers/product_provider.dart';
 import '../../providers/shop_provider.dart';
 import '../../providers/warehouse_provider.dart';
 import '../../config/api_config.dart';
+import '../../widgets/go_pop_scope.dart';
 import '../../widgets/hamburger_menu.dart';
 import '../../services/bluetooth_printer_service.dart';
 import '../../widgets/bluetooth_printer_dialog.dart';
@@ -136,10 +137,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Scaffold(
-      backgroundColor: scheme.surface,
-      appBar: AppBar(
-        title: const Text('Settings'),
+    return GoPopScope(
+      fallbackRoute: GoPopScope.homeRouteFor(context),
+      child: Scaffold(
+        backgroundColor: scheme.surface,
+        appBar: AppBar(
+          title: const Text('Settings'),
         backgroundColor: scheme.primary,
         foregroundColor: scheme.onPrimary,
         elevation: 0,
@@ -778,6 +781,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 32),
           ],
         ),
+      ),
       ),
     );
   }

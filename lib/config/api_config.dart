@@ -45,7 +45,7 @@ class ApiConfig {
   ///
   /// `:80` дээр **nginx 404 (HTML)** гарвал `/api`-г Node backend руу proxy хийгээгүй;
   /// түрд `http://IP:3000` (порт нээлттэй бол) эсвэл nginx тохируулна.
-  static const String productionBackendServerUrl = 'http://43.231.115.209';
+  static const String productionBackendServerUrl = 'http://43.231.115.209:3000';
 
   /// TLS сертификат шалгалтыг алгасах (**зөвхөн дотоод тест**).
   ///

@@ -86,7 +86,14 @@ Future<bool> confirmReturnEbarimtReceipt(
   );
 
   try {
-    await warehouse.ebarimtReturnOrder(orderId: oid);
+    final r = await warehouse.ebarimtReturnOrder(orderId: oid);
+    final returnId = (r['returnId'] ?? r['id'] ?? '').toString().trim();
+    if (returnId.isNotEmpty) {
+      // This endpoint performs the stock restore transaction on the server.
+      try {
+        await warehouse.ebarimtReturnDone(orderId: oid, returnId: returnId);
+      } catch (_) {}
+    }
     await orders.fetchOrders(warehouse.dio);
     try {
       await warehouse.refreshProducts();

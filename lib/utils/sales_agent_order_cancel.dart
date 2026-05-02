@@ -11,6 +11,8 @@ import '../providers/order_provider.dart';
 import '../providers/product_provider.dart';
 import '../providers/warehouse_provider.dart';
 import 'ebarimt_order_return.dart';
+import 'order_owner_utils.dart';
+import 'warehouse_agent_shop_identity_one_file.dart';
 
 /// `order_details_screen` болон энд ижил түлхүүр ашиглана (гар утсанд eBarimt хэвлэсэн ID-нууд).
 const String kPrintedEbarimtOrderIdsPrefKey = 'printed_ebarimt_orders_v1';
@@ -44,11 +46,18 @@ Future<Set<String>> readLocallyPrintedOrderIds() async {
 bool orderCanSalesAgentCancelOwnPending(
   Order order, {
   required String? currentUserId,
+  int? prefsAgentNumericId,
   Set<String> locallyPrintedOrderIds = const {},
 }) {
   final myId = (currentUserId ?? '').trim();
   if (myId.isEmpty) return false;
-  if (order.salespersonId.trim() != myId) return false;
+  if (!orderSalespersonMatchesCurrentUser(
+    orderSalespersonId: order.salespersonId,
+    currentUserId: myId,
+    agentNumericIdFromPrefs: prefsAgentNumericId,
+  )) {
+    return false;
+  }
   final s = order.status.toLowerCase();
   if (s == 'cancelled') return false;
   if (s == 'delivered') return false;
@@ -81,6 +90,19 @@ Future<void> _refreshLocalProducts(BuildContext context) async {
   } catch (_) {}
 }
 
+/// Захиалгын `items[].quantity` (нийт ширхэг) — сервер цуцалсны дараа үлдэгдэл шинэчлэхгүй бол орчноор нэмнэ.
+void _bumpStockFromCancelledOrder(BuildContext context, Order order) {
+  final deltas = <String, int>{};
+  for (final it in order.items) {
+    if (it.quantity <= 0) continue;
+    deltas[it.productId] = (deltas[it.productId] ?? 0) + it.quantity;
+  }
+  if (deltas.isEmpty) return;
+  if (!context.mounted) return;
+  final products = Provider.of<ProductProvider>(context, listen: false);
+  products.bumpStockByProductId(deltas);
+}
+
 /// Сервер дээр статус `Cancelled` болгож, жагсаалт + барааны үлдэгдлийг шинэчилнэ.
 Future<bool> confirmSalesAgentCancelPendingOrder(
   BuildContext context,
@@ -99,9 +121,12 @@ Future<bool> confirmSalesAgentCancelPendingOrder(
     }
     return false;
   }
+  final prefs = await SharedPreferences.getInstance();
+  final agentNum = prefs.getInt(WarehouseAgentShopIdentity.prefsAgentIdKey);
   if (!orderCanSalesAgentCancelOwnPending(
     order,
     currentUserId: auth.user?.id,
+    prefsAgentNumericId: agentNum,
     locallyPrintedOrderIds: localPrinted,
   )) {
     return false;
@@ -163,6 +188,8 @@ Future<bool> confirmSalesAgentCancelPendingOrder(
     await warehouse.updateOrderStatus(orderId: oid, status: 'Cancelled');
     await orders.fetchOrders(warehouse.dio);
     await _refreshLocalProducts(context);
+    // Олон backend зөвхөн статус цуцалдаг, нөөц сэргээхгүй — орчны үлдэгдлийг захиалгын тоогоор нэмнө.
+    _bumpStockFromCancelledOrder(context, order);
     if (context.mounted) {
       Navigator.of(context, rootNavigator: true).pop();
       ScaffoldMessenger.of(context).showSnackBar(

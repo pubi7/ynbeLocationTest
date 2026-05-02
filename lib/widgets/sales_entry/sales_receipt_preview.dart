@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/sales_item_model.dart';
+import '../../utils/promotion_pricing_utils.dart';
 import 'ebarimt_receipt_layout.dart';
 
 /// И-баримтын дэлгэцийн загвар (58mm орчим өргөн).
@@ -46,7 +47,21 @@ class SalesReceiptPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = items.fold(0.0, (s, i) => s + i.receiptLineGross);
+    final elig = PromotionPricingUtils.cartWideBillablePaidPiecesSum(items);
+    final total = items.fold<double>(
+      0.0,
+      (s, i) =>
+          s +
+          PromotionPricingUtils.lineTotalFromDiscountedUnit(
+            unitPrice: i.receiptUnitGross,
+            cartBulkMultiplier:
+                PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+              item: i,
+              eligiblePaidPiecesTotal: elig,
+            ),
+            paidPieces: i.paidQuantity,
+          ),
+    );
     final isOrg = customerType == 'Байгуулга';
     final mono = TextStyle(
       fontSize: 11,

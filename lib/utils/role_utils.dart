@@ -33,3 +33,8 @@ bool isManagerRole(String? role) {
       r.contains('менежер');
 }
 
+/// Зөвхөн захиалга (`order`) — ачааны өдрийн тооцоонд агенттой ижил (+1 өдөр).
+bool isOrderOnlyRole(String? role) {
+  return (role ?? '').trim().toLowerCase() == 'order';
+}
+

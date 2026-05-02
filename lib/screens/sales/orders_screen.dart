@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/order_model.dart';
 import '../../providers/order_provider.dart';
 import '../../providers/auth_provider.dart';
@@ -9,6 +10,9 @@ import '../../services/pos_receipt_service.dart';
 import '../../utils/ebarimt_order_return.dart';
 import '../../utils/role_utils.dart';
 import '../../utils/sales_agent_order_cancel.dart';
+import '../../utils/order_owner_utils.dart';
+import '../../utils/warehouse_agent_shop_identity_one_file.dart';
+import '../../widgets/go_pop_scope.dart';
 import '../../widgets/hamburger_menu.dart';
 import '../../widgets/bottom_navigation.dart';
 
@@ -22,6 +26,9 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersScreenState extends State<OrdersScreen> {
   DateTime _selectedDay = DateUtils.dateOnly(DateTime.now());
 
+  /// Нэвтрэлтийн `user.id`-аас ялгаатай Agent тоон ID (профайл/логинд хадгалагдсан).
+  int? _prefsAgentId;
+
   /// Гар утсанд eBarimt хэвлэсэн захиалгын ID (prefs-тай ижил түлхүүр).
   Set<String> _localPrintedOrderIds = <String>{};
 
@@ -29,8 +36,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
   final List<String> _pickListShopOrder = [];
   final Map<String, Map<String, _PickListProductAgg>> _pickListByShop = {};
 
-  DateTime _effectiveOrderDay(Order o) {
-    return DateUtils.dateOnly(o.deliveryDate ?? o.orderDate);
+  /// Өдөр сонгоход шүүх өдөр: **захиалга үүссэн** (orderDate).
+  /// deliveryDate ихэвчлэн «хүргэх өдөр» (+1) тул түүгээр шүүвэл өнөөдөр
+  /// орсон захиалга маргаашийн өдөрт орж харагдах алдаа гардаг.
+  DateTime _orderPlacedCalendarDay(Order o) {
+    return DateUtils.dateOnly(o.orderDate);
   }
 
   void _rebuildPickList(List<Order> dayOrders) {
@@ -103,7 +113,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 padding: const EdgeInsets.all(24),
                 children: [
                   Text(
-                    '$dateStr — энэ өдөр захиалга алга.',
+                    '$dateStr — энэ өдөр үүссэн захиалга алга.',
                     style: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.w600),
                   ),
@@ -422,6 +432,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
   @override
   void initState() {
     super.initState();
+    SharedPreferences.getInstance().then((p) {
+      if (!mounted) return;
+      setState(() => _prefsAgentId =
+          p.getInt(WarehouseAgentShopIdentity.prefsAgentIdKey));
+    });
     // Fetch orders from backend when screen loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshOrders();
@@ -432,10 +447,12 @@ class _OrdersScreenState extends State<OrdersScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final role = context.watch<AuthProvider>().userRole;
-    return Scaffold(
-      backgroundColor: scheme.surface,
-      appBar: AppBar(
-        title: const Text('Orders'),
+    return GoPopScope(
+      fallbackRoute: '/sales-dashboard',
+      child: Scaffold(
+        backgroundColor: scheme.surface,
+        appBar: AppBar(
+          title: const Text('Orders'),
         backgroundColor: scheme.primary,
         foregroundColor: scheme.onPrimary,
         elevation: 0,
@@ -466,10 +483,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
           final roleScopedOrders =
               ((isManagerRole(auth.userRole) || isAgentRole(auth.userRole)) &&
                       myId.isNotEmpty)
-              ? allOrders.where((o) => o.salespersonId.trim() == myId).toList()
+              ? allOrders
+                  .where((o) => orderSalespersonMatchesCurrentUser(
+                        orderSalespersonId: o.salespersonId,
+                        currentUserId: myId,
+                        agentNumericIdFromPrefs: _prefsAgentId,
+                      ))
+                  .toList()
               : allOrders;
           final visibleOrders = roleScopedOrders
-              .where((o) => DateUtils.isSameDay(_effectiveOrderDay(o), _selectedDay))
+              .where((o) =>
+                  DateUtils.isSameDay(_orderPlacedCalendarDay(o), _selectedDay))
               .toList();
 
           if (orderProvider.isLoading) {
@@ -682,7 +706,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          'Энэ өдөр захиалга алга',
+                          'Энэ өдөр үүссэн захиалга алга',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w500,
@@ -780,6 +804,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                   orderCanSalesAgentCancelOwnPending(
                                     order,
                                     currentUserId: auth.user?.id,
+                                    prefsAgentNumericId: _prefsAgentId,
                                     locallyPrintedOrderIds:
                                         _localPrintedOrderIds,
                                   ))
@@ -840,6 +865,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
             ),
           );
         },
+      ),
       ),
     );
   }

@@ -14,8 +14,11 @@ import '../../services/bluetooth_printer_service.dart';
 import '../../services/sugalaanii_dugaar.dart';
 import '../../models/sales_item_model.dart';
 import '../../utils/ebarimt_order_return.dart';
+import '../../utils/order_owner_utils.dart';
 import '../../utils/role_utils.dart';
 import '../../utils/sales_agent_order_cancel.dart';
+import '../../utils/warehouse_agent_shop_identity_one_file.dart';
+import '../../widgets/go_pop_scope.dart';
 
 class OrderDetailsScreen extends StatefulWidget {
   final String orderId;
@@ -36,6 +39,17 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
   bool _printLocked = false;
   bool _printedLoaded = false;
   final Set<String> _printedOrderIds = <String>{};
+  int? _prefsAgentId;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      if (!mounted) return;
+      setState(() => _prefsAgentId =
+          p.getInt(WarehouseAgentShopIdentity.prefsAgentIdKey));
+    });
+  }
 
   Future<void> _loadPrintedOrders() async {
     if (_printedLoaded) return;
@@ -878,11 +892,16 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
         orderCanSalesAgentCancelOwnPending(
           o,
           currentUserId: auth.user?.id,
+          prefsAgentNumericId: _prefsAgentId,
           locallyPrintedOrderIds: _printedOrderIds,
         );
     final myId = (auth.user?.id ?? '').trim();
-    final ownOrder =
-        myId.isNotEmpty && o.salespersonId.trim() == myId;
+    final ownOrder = myId.isNotEmpty &&
+        orderSalespersonMatchesCurrentUser(
+          orderSalespersonId: o.salespersonId,
+          currentUserId: myId,
+          agentNumericIdFromPrefs: _prefsAgentId,
+        );
     final pendingLike = o.status.toLowerCase() == 'pending' ||
         o.status.toLowerCase() == 'confirmed';
     final receiptBlocksSimpleCancel =
@@ -920,20 +939,22 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
     }
     final canPrintNow = !_busy && !_printLocked && !alreadyHasEbarimt;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: const Text('Захиалгын дэлгэрэнгүй'),
-        backgroundColor: const Color(0xFF3B82F6),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          tooltip: 'Буцах',
-          onPressed: () => context.go('/orders'),
+    return GoPopScope(
+      fallbackRoute: '/sales-orders',
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          title: const Text('Захиалгын дэлгэрэнгүй'),
+          backgroundColor: const Color(0xFF3B82F6),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded),
+            tooltip: 'Буцах',
+            onPressed: () => context.go('/sales-orders'),
+          ),
         ),
-      ),
-      body: SingleChildScrollView(
+        body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1138,18 +1159,10 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                it.boxPieceSummary,
+                                it.pieceQuantitySubtitle,
                                 style: TextStyle(
                                   color: Colors.grey.shade700,
                                   fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                '${it.unitPrice.toStringAsFixed(0)} ₮ × ${it.quantity} ш = ${it.totalPrice.toStringAsFixed(0)} ₮',
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontSize: 12,
                                 ),
                               ),
                             ],
@@ -1197,6 +1210,7 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

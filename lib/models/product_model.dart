@@ -1,3 +1,5 @@
+import '../utils/product_active_parsing.dart';
+
 Map<int, double>? _parsePricesByCustomerType(dynamic value) {
   if (value == null || value is! Map) return null;
   final result = <int, double>{};
@@ -13,6 +15,7 @@ class Product {
   final String id;
   final String name;
   final double price;
+  final double? defaultPrice;
 
   /// Discount percent from Weve/backend (0-100). If null, no discount.
   final int? discountPercent;
@@ -42,6 +45,7 @@ class Product {
     required this.id,
     required this.name,
     required this.price,
+    this.defaultPrice,
     this.discountPercent,
     this.promotionText,
     this.description,
@@ -71,11 +75,36 @@ class Product {
     return price;
   }
 
+  /// 1 ширхэгийн үнэ (piece). Хэрэв `pricePerBox` ба `unitsPerBox` ирсэн бол
+  /// хайрцаг/боодлын үнийг ширхэгт шилжүүлж харуулна.
+  double getPiecePriceForCustomerType(int? customerTypeId) {
+    final base = getPriceForCustomerType(customerTypeId);
+    final upb = unitsPerBox;
+    final ppb = pricePerBox;
+    if (upb != null && upb > 0 && ppb != null && ppb > 0) {
+      return ppb / upb;
+    }
+    return base;
+  }
+
+  /// UI-д сонгосон нэгжийн үнэ: `piece` = 1 ширхэг, `box` = 1 хайрцаг (ширхэгийн үнэ × [unitsPerBox]).
+  /// Захиалга/сагсанд [SalesItem.price] нь үргэлж **ширхэг тутамын** үнэ хэвээр байна.
+  double getUnitPriceForOrderedUnit(int? customerTypeId, String orderedUnit) {
+    final perPiece = getPiecePriceForCustomerType(customerTypeId);
+    final upbRaw = unitsPerBox ?? 1;
+    final upb = upbRaw <= 0 ? 1 : upbRaw;
+    if (orderedUnit == 'box' && upb > 1) {
+      return perPiece * upb;
+    }
+    return perPiece;
+  }
+
   factory Product.fromJson(Map<String, dynamic> json) {
     return Product(
       id: json['id'],
       name: json['name'],
       price: json['price'].toDouble(),
+      defaultPrice: (json['defaultPrice'] as num?)?.toDouble(),
       discountPercent: (json['discountPercent'] as num?)?.toInt(),
       promotionText: json['promotionText']?.toString(),
       description: json['description'],
@@ -92,9 +121,36 @@ class Product {
       pricesByCustomerType:
           _parsePricesByCustomerType(json['pricesByCustomerType']),
       supplierName: json['supplierName'],
-      isActive:
-          json['isActive'] as bool? ?? true, // Default to true if not provided
+      // Keep the exact same API-active resolution logic in one file.
+      isActive: isProductActiveFromApiMap(json),
       unitPriceExcludesVat: json['unitPriceExcludesVat'] == true,
+    );
+  }
+
+  /// Ижил бараа, зөвхөн [stockQuantity]-ийг солино (захиалга цуцлах зэрэг).
+  Product withStockQuantity(int? newStockQuantity) {
+    return Product(
+      id: id,
+      name: name,
+      price: price,
+      defaultPrice: defaultPrice,
+      discountPercent: discountPercent,
+      promotionText: promotionText,
+      description: description,
+      category: category,
+      barcode: barcode,
+      productCode: productCode,
+      stockQuantity: newStockQuantity,
+      unitsPerBox: unitsPerBox,
+      netWeight: netWeight,
+      grossWeight: grossWeight,
+      priceWholesale: priceWholesale,
+      priceRetail: priceRetail,
+      pricePerBox: pricePerBox,
+      pricesByCustomerType: pricesByCustomerType,
+      supplierName: supplierName,
+      isActive: isActive,
+      unitPriceExcludesVat: unitPriceExcludesVat,
     );
   }
 
@@ -103,6 +159,7 @@ class Product {
       'id': id,
       'name': name,
       'price': price,
+      'defaultPrice': defaultPrice,
       'discountPercent': discountPercent,
       'promotionText': promotionText,
       'description': description,

@@ -11,6 +11,8 @@ import '../../models/product_model.dart';
 import '../../services/pos_receipt_service.dart';
 import '../../services/bluetooth_printer_service.dart';
 import '../../utils/role_utils.dart';
+import '../../utils/warehouse_order_backend_submit_one_file.dart';
+import '../../widgets/go_pop_scope.dart';
 import '../../widgets/hamburger_menu.dart';
 import '../../widgets/bottom_navigation.dart';
 
@@ -123,18 +125,14 @@ class _OrderScreenState extends State<OrderScreen> {
           }
         }
 
-        final items = _orderItems.map((item) {
-          final productId = int.tryParse(item.productId);
-          if (productId == null) {
-            throw Exception('Барааны ID буруу байна: ${item.productId}');
-          }
-          return {
-            'productId': productId,
-            'quantity': item.quantity,
-            'unitPrice':
-                item.unitPrice, // Send price so backend can use as fallback
-          };
-        }).toList();
+        final items =
+            WarehouseOrderBackendSubmitOneFile.buildItemsFromOrderScreenLines(
+          _orderItems,
+        );
+        WarehouseOrderBackendSubmitOneFile.debugLogBackendOrderItems(
+          items,
+          productNames: _orderItems.map((e) => e.productName).toList(),
+        );
 
         // Find customer ID from name (use first matching shop/customer)
         final shops = warehouseProvider.shops;
@@ -160,12 +158,15 @@ class _OrderScreenState extends State<OrderScreen> {
               debugPrint('   • Барааны тоо: ${items.length}');
             }
 
-            final result = await warehouseProvider.createOrder(
-              customerId: customerId,
-              items: items,
-              orderType: 'Store',
-              paymentMethod: 'Cash',
-              allowInsufficientStock: false,
+            final result =
+                await WarehouseOrderBackendSubmitOneFile.createOrderWith429Retry(
+              () => warehouseProvider.createOrder(
+                customerId: customerId,
+                items: items,
+                orderType: 'Store',
+                paymentMethod: 'Cash',
+                allowInsufficientStock: false,
+              ),
             );
 
             if (kDebugMode) {
@@ -426,9 +427,11 @@ class _OrderScreenState extends State<OrderScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Take Order'),
+    return GoPopScope(
+      fallbackRoute: '/sales-dashboard',
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Take Order'),
         backgroundColor: const Color(0xFF3B82F6),
         foregroundColor: Colors.white,
         elevation: 0,
@@ -858,6 +861,7 @@ class _OrderScreenState extends State<OrderScreen> {
             ),
           ),
         ),
+      ),
       ),
     );
   }

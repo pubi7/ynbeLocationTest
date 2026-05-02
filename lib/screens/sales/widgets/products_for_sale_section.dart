@@ -174,7 +174,6 @@ class _ProductTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stock = (product.stockQuantity ?? 0) as num;
-    final price = (product.price ?? 0) as num;
 
     final bg = switch (stock) {
       > 10 => const Color(0xFFECFDF5),
@@ -196,50 +195,31 @@ class _ProductTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey.shade200),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  product.name,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Text(
-                      '${price.toStringAsFixed(0)} ₮',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF10B981),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: (bg ?? Colors.grey.shade200),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'Үлдэгдэл: $stock',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: fg,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+          Text(
+            product.name,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: (bg ?? Colors.grey.shade200),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              'Үлдэгдэл: $stock',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: fg,
+              ),
             ),
           ),
         ],

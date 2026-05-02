@@ -187,6 +187,8 @@ class PosPrinterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
              outputStream?.close()
         } catch (e: Exception) {
             // Ignore
+            
+            
         }
     }
 }

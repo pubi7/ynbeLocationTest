@@ -44,7 +44,6 @@ class AuthProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('user_data');
     await prefs.remove('user_role');
-    await prefs.setBool('remember_me', false);
 
     _user = null;
     _isLoggedIn = false;

@@ -49,6 +49,10 @@ function isManagerRole(role) {
   );
 }
 
+function isOrderOnlyRole(role) {
+  return _safeLower(role) === "order";
+}
+
 function dateOnlyLocal(d) {
   const v = d instanceof Date ? d : new Date(d);
   return new Date(v.getFullYear(), v.getMonth(), v.getDate());
@@ -65,7 +69,7 @@ function yyyyMmDd(d) {
 function computeDeliveryDateForWeb(role, now = new Date()) {
   const base = dateOnlyLocal(now);
   if (isManagerRole(role)) return yyyyMmDd(base);
-  if (isAgentRole(role)) {
+  if (isAgentRole(role) || isOrderOnlyRole(role)) {
     // JS Date: Sunday=0, Saturday=6
     const isSaturday = base.getDay() === 6;
     const addDays = isSaturday ? 2 : 1;
@@ -108,6 +112,7 @@ module.exports = {
   getRoleFromRequest,
   isAgentRole,
   isManagerRole,
+  isOrderOnlyRole,
   yyyyMmDd,
 };
 

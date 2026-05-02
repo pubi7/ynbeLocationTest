@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/shop_model.dart';
 import '../models/sales_model.dart';
+import '../utils/warehouse_agent_shop_identity_one_file.dart';
 
 class ShopProvider extends ChangeNotifier {
   List<Shop> _shops = [];
@@ -30,19 +31,7 @@ class ShopProvider extends ChangeNotifier {
   }
 
   Shop? getShopByName(String name) {
-    final q = name.trim().toLowerCase();
-    if (q.isEmpty) return null;
-    // 1) Exact match (trim + case-insensitive)
-    for (final s in _shops) {
-      if (s.name.trim().toLowerCase() == q) return s;
-    }
-    // 2) Contains match (best-effort)
-    for (final s in _shops) {
-      final sn = s.name.trim().toLowerCase();
-      if (sn.isEmpty) continue;
-      if (sn.contains(q) || q.contains(sn)) return s;
-    }
-    return null;
+    return WarehouseAgentShopIdentity.findShopByDisplayName(_shops, name);
   }
 
   // Зээлээр авсан төлбөр хийгээгүй дэлгүүрүүдийг шалгах

@@ -160,7 +160,6 @@ class _ReceiptBody extends StatelessWidget {
         (qrDataFromServer != null && qrDataFromServer!.trim().isNotEmpty)
             ? qrDataFromServer!.trim()
             : EbarimtReceiptLayout.qrPayload(lot);
-
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -7,6 +7,9 @@ import 'warehouse_tls_adapter_stub.dart'
     if (dart.library.io) 'warehouse_tls_adapter_io.dart' as warehouse_tls_adapter;
 import '../models/product_model.dart';
 import '../models/shop_model.dart';
+import '../utils/product_active_parsing.dart';
+import '../utils/promotion_pricing_utils.dart';
+import '../utils/warehouse_agent_shop_identity_one_file.dart';
 
 /// Native дээр ApiConfig-оос base URL ирэхгүй үед Dio-д оруулах түр placeholder (.invalid DNS).
 String _warehouseDioInitialBaseUrl() {
@@ -37,6 +40,7 @@ int? _parseStockQuantity(Map<String, dynamic> p) {
 
 List<Map<String, dynamic>> _extractProductMaps(List<dynamic> raw) {
   final out = <Map<String, dynamic>>[];
+
   for (final p0 in raw) {
     if (p0 is! Map) continue;
     final p = p0.cast<String, dynamic>();
@@ -98,8 +102,8 @@ List<Map<String, dynamic>> _extractProductMaps(List<dynamic> raw) {
       'supplierName': (p['supplier'] is Map)
           ? (p['supplier'] as Map)['name']?.toString()
           : null,
-      // Product active status (default to true if not provided)
-      'isActive': p['isActive'] ?? p['active'] ?? true,
+      // Product active status (support multiple backend field names/formats)
+      'isActive': isProductActiveFromApiMap(p),
       // Ð”ÑÐ»Ð³Ò¯Ò¯Ñ€ (customerType)-Ð°Ð°Ñ Ñ…Ð°Ð¼Ð°Ð°Ñ€Ð°Ñ… Ò¯Ð½Ñ - ProductPrice array from API
       'pricesByCustomerType': _extractPricesByCustomerType(p['prices']),
     });
@@ -131,44 +135,6 @@ Map<int, double>? _extractPricesByCustomerType(dynamic raw) {
     if (v != null && v > 0) result[k] = v;
   }
   return result.isEmpty ? null : result;
-}
-
-List<Map<String, dynamic>> _extractShopMaps(List<dynamic> raw) {
-  final out = <Map<String, dynamic>>[];
-  for (final c0 in raw) {
-    if (c0 is! Map) continue;
-    final c = c0.cast<String, dynamic>();
-    out.add({
-      'id': c['id']?.toString(),
-      'name': c['name']?.toString(),
-      'district': c['district']?.toString(),
-      'address': c['address']?.toString(),
-      'detailedAddress': c['detailedAddress']?.toString(),
-      'phoneNumber': c['phoneNumber']?.toString(),
-      'registrationNumber': (c['registrationNumber'] ??
-              c['companyRegistrationNumber'] ??
-              c['regNo'] ??
-              c['registration_no'] ??
-              c['customerRegNo'])
-          ?.toString(),
-      'customerTypeId': (c['customerTypeId'] is num)
-          ? (c['customerTypeId'] as num).toInt()
-          : int.tryParse((c['customerTypeId'] ?? '').toString()),
-      // Optional: purchase limit fields (backend dependent)
-      'maxPurchaseAmount': (c['maxPurchaseAmount'] ??
-              c['purchaseLimit'] ??
-              c['maxOrderAmount'] ??
-              c['creditLimit'])
-          ?.toString(),
-      'locationLatitude': (c['locationLatitude'] is num)
-          ? (c['locationLatitude'] as num).toDouble()
-          : null,
-      'locationLongitude': (c['locationLongitude'] is num)
-          ? (c['locationLongitude'] as num).toDouble()
-          : null,
-    });
-  }
-  return out;
 }
 
 class _RetryInterceptor extends Interceptor {
@@ -235,7 +201,11 @@ class WarehouseLoginResult {
 /// - POST `auth/login`  -> { status: "success", data: { token: "..." } }
 /// - POST `auth/agent-login` -> { status: "success", data: { token: "...", agent: {...} } }
 /// - GET  `products`    -> { status: "success", data: { products: [], pagination: { totalPages } } }
-/// - GET  `customers`   -> { status: "success", data: { customers: [], pagination: { totalPages } } }
+/// - GET  `customers`   -> **Pagination** (`?page=&limit=`) — бүх мөрийг нэг GET-ээр биш,
+///   хоосон хуудас / нийт тооны hint / dedupe зогсолт (см. [fetchAllShops]). Жижиг системд
+///   `GET /customers` ганцаар хангалттай; том системд filter (`role`, `forAllAgents` гэх мэт)
+///   + pagination заавал. Ажилтны жагсаалт өөр endpoint (`GET /employees`, `GET /users?role=…`)
+///   байвал тусад нь нэмнэ. Real-time (Firestore/WebSocket) энд байхгүй.
 /// - GET  `etax/organization/:regno` -> eTax / getTinInfo (нэр, регистр, auth)
 /// - POST `ebarimt/register/:orderId` -> POS баримт бүртгэсний дараах хариу (lottery, qrData, …)
 class WarehouseWebBridge {
@@ -283,13 +253,13 @@ class WarehouseWebBridge {
       InterceptorsWrapper(
         onRequest: (options, handler) {
           if (kDebugMode)
-            debugPrint('[WebBridge] â†’ ${options.method} ${options.uri}');
+            debugPrint('[WebBridge] -> ${options.method} ${options.uri}');
           handler.next(options);
         },
         onResponse: (resp, handler) {
           if (kDebugMode)
             debugPrint(
-                '[WebBridge] â† ${resp.statusCode} ${resp.requestOptions.uri}');
+                '[WebBridge] <- ${resp.statusCode} ${resp.requestOptions.uri}');
           handler.next(resp);
         },
         onError: (e, handler) async {
@@ -298,12 +268,12 @@ class WarehouseWebBridge {
             onUnauthorized?.call();
           }
           if (kDebugMode) {
-            debugPrint('[WebBridge] âœ— ${e.type} ${e.requestOptions.uri}');
+            debugPrint('[WebBridge] [err] ${e.type} ${e.requestOptions.uri}');
             if (e.response != null) {
               debugPrint(
-                  '[WebBridge] âœ— status=${e.response?.statusCode} body=${e.response?.data}');
+                  '[WebBridge] [err] status=${e.response?.statusCode} body=${e.response?.data}');
             } else {
-              debugPrint('[WebBridge] âœ— message=${e.message}');
+              debugPrint('[WebBridge] [err] message=${e.message}');
             }
           }
           handler.next(e);
@@ -388,20 +358,20 @@ class WarehouseWebBridge {
       final message = body['message'] ?? 'Request failed';
       if (kDebugMode) {
         debugPrint(
-            '[WebBridge] âŒ Response status is not success: $status - $message');
+            '[WebBridge] [err] Response status is not success: $status - $message');
       }
       throw Exception(message);
     }
     final data = body['data'];
     if (data is Map) {
       if (kDebugMode) {
-        debugPrint('[WebBridge] âœ… Unwrapped data with keys: ${data.keys}');
+        debugPrint('[WebBridge] [ok] Unwrapped data with keys: ${data.keys}');
       }
       return data.cast<String, dynamic>();
     }
     if (kDebugMode) {
       debugPrint(
-          '[WebBridge] âš ï¸ No data field found, returning body as-is');
+          '[WebBridge] [warn] No data field found, returning body as-is');
     }
     return body;
   }
@@ -443,7 +413,7 @@ class WarehouseWebBridge {
       return r.data ?? <String, dynamic>{};
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[WebBridge] âŒ Error in _postJson for $path: $e');
+        debugPrint('[WebBridge] [err] Error in _postJson for $path: $e');
         if (e is DioException) {
           debugPrint('[WebBridge] Error type: ${e.type}');
           debugPrint('[WebBridge] Status: ${e.response?.statusCode}');
@@ -453,34 +423,25 @@ class WarehouseWebBridge {
           // Provide specific error messages for connection issues
           if (e.type == DioExceptionType.connectionTimeout) {
             debugPrint(
-                '[WebBridge] âš ï¸ Connection timeout - server may be unreachable or slow');
+                '[WebBridge] [warn] Connection timeout - server may be unreachable or slow');
             debugPrint(
-                '[WebBridge] âš ï¸ Check if server at ${e.requestOptions.uri} is running');
+                '[WebBridge] [warn] Check if server at ${e.requestOptions.uri} is running');
           } else if (e.type == DioExceptionType.sendTimeout) {
             debugPrint(
-                '[WebBridge] âš ï¸ Send timeout - request took too long to send');
+                '[WebBridge] [warn] Send timeout - request took too long to send');
           } else if (e.type == DioExceptionType.receiveTimeout) {
             debugPrint(
-                '[WebBridge] âš ï¸ Receive timeout - response took too long');
+                '[WebBridge] [warn] Receive timeout - response took too long');
           } else if (e.type == DioExceptionType.connectionError) {
             debugPrint(
-                '[WebBridge] âš ï¸ Connection error - cannot reach server');
+                '[WebBridge] [warn] Connection error - cannot reach server');
             debugPrint(
-                '[WebBridge] âš ï¸ Check network connection and server address');
+                '[WebBridge] [warn] Check network connection and server address');
           }
         }
       }
       rethrow;
     }
-  }
-
-  Map<String, dynamic>? _mapFromDynamic(dynamic v) {
-    if (v == null) return null;
-    if (v is Map<String, dynamic>) return v;
-    if (v is Map) {
-      return v.map((k, val) => MapEntry(k.toString(), val));
-    }
-    return null;
   }
 
   Future<String> login(
@@ -497,7 +458,7 @@ class WarehouseWebBridge {
     // - Otherwise, try agent-login first (Weve site authentication), then fallback to normal login
 
     if (kDebugMode) {
-      debugPrint('[WebBridge] ðŸ” Starting login for identifier: $identifier');
+      debugPrint('[WebBridge] Login: identifier=$identifier');
     }
 
     final isWarehouseEmail =
@@ -527,7 +488,7 @@ class WarehouseWebBridge {
           final errorMsg =
               body['message']?.toString() ?? 'Token not returned from server';
           if (kDebugMode) {
-            debugPrint('[WebBridge] âŒ Login failed: $errorMsg');
+            debugPrint('[WebBridge] [err] Login failed: $errorMsg');
           }
           throw Exception(errorMsg);
         }
@@ -536,16 +497,16 @@ class WarehouseWebBridge {
         await saveToken(token);
 
         if (kDebugMode) {
-          debugPrint('[WebBridge] âœ… Login successful for warehouse email');
+          debugPrint('[WebBridge] [ok] Login successful for warehouse email');
         }
 
         return WarehouseLoginResult(
           token: token,
-          loginUser: _mapFromDynamic(data['user']),
+          loginUser: WarehouseAgentShopIdentity.mapFromDynamic(data['user']),
         );
       } catch (e) {
         if (kDebugMode) {
-          debugPrint('[WebBridge] âŒ Warehouse login error: $e');
+          debugPrint('[WebBridge] [err] Warehouse login error: $e');
           if (e is DioException) {
             debugPrint('[WebBridge] Status: ${e.response?.statusCode}');
             debugPrint('[WebBridge] Response: ${e.response?.data}');
@@ -554,7 +515,7 @@ class WarehouseWebBridge {
             // Provide specific guidance for connection issues
             if (e.type == DioExceptionType.connectionTimeout ||
                 e.type == DioExceptionType.connectionError) {
-              debugPrint('[WebBridge] âš ï¸ CONNECTION ERROR DETECTED');
+              debugPrint('[WebBridge] [warn] CONNECTION ERROR DETECTED');
               debugPrint('[WebBridge] Server URL: ${_dio.options.baseUrl}');
               debugPrint('[WebBridge] Full URL: ${e.requestOptions.uri}');
               debugPrint('[WebBridge] Dio message: ${e.message}');
@@ -566,7 +527,7 @@ class WarehouseWebBridge {
               debugPrint('[WebBridge] 3. Network connectivity problem');
               if (kIsWeb) {
                 debugPrint('[WebBridge] 4. CORS not enabled on server');
-                debugPrint('[WebBridge]    â†’ Server needs CORS headers:');
+                debugPrint('[WebBridge]    -> Server needs CORS headers:');
                 debugPrint('[WebBridge]      Access-Control-Allow-Origin: *');
                 debugPrint(
                     '[WebBridge]      Access-Control-Allow-Methods: GET, POST, OPTIONS');
@@ -609,39 +570,35 @@ class WarehouseWebBridge {
         setToken(agentToken);
         await saveToken(agentToken);
 
-        // Extract and save agent ID if available
-        final agentInfo = agentData['agent'] as Map<String, dynamic>?;
+        final agentInfo =
+            WarehouseAgentShopIdentity.mapFromDynamic(agentData['agent']);
         if (agentInfo != null) {
-          final agentId = agentInfo['id'];
-          if (agentId != null) {
-            // Save agent ID to SharedPreferences for LocationProvider
+          final agentIdInt = WarehouseAgentShopIdentity.parseAgentIdFromAgentLoginAgent(
+            agentInfo,
+          );
+          if (agentIdInt != null) {
             final prefs = await SharedPreferences.getInstance();
-            final agentIdInt = (agentId is num)
-                ? agentId.toInt()
-                : int.tryParse(agentId.toString());
-            if (agentIdInt != null) {
-              await prefs.setInt('agent_id', agentIdInt);
-              if (kDebugMode) {
-                debugPrint(
-                    '[WebBridge] âœ… Agent ID Ñ…Ð°Ð´Ð³Ð°Ð»Ð°Ð³Ð´Ð»Ð°Ð°: $agentIdInt');
-              }
+            await prefs.setInt(
+                WarehouseAgentShopIdentity.prefsAgentIdKey, agentIdInt);
+            if (kDebugMode) {
+              debugPrint('[WebBridge] [ok] Agent ID stored: $agentIdInt');
             }
           }
         }
 
         if (kDebugMode) {
-          debugPrint('[WebBridge] âœ… Agent-login successful');
+          debugPrint('[WebBridge] [ok] Agent-login successful');
         }
 
         return WarehouseLoginResult(
           token: agentToken,
-          loginUser: _mapFromDynamic(agentData['agent']) ??
-              _mapFromDynamic(agentData['user']),
+          loginUser:
+              WarehouseAgentShopIdentity.personFromAgentLoginData(agentData),
         );
       } else {
         if (kDebugMode) {
           debugPrint(
-              '[WebBridge] âš ï¸ Agent-login succeeded but no token received');
+              '[WebBridge] [warn] Agent-login succeeded but no token received');
         }
         throw Exception('Token not returned from agent-login');
       }
@@ -675,13 +632,13 @@ class WarehouseWebBridge {
               errorMessage.toLowerCase().contains('Ð±Ò¯Ñ€Ñ‚Ð³ÑÐ»Ð³Ò¯Ð¹') ||
               errorMessage.toLowerCase().contains('user not found')) {
             if (kDebugMode) {
-              debugPrint('[WebBridge] âŒ User not registered in Weve site');
+              debugPrint('[WebBridge] [err] User not registered in Weve site');
             }
             throw Exception('USER_NOT_REGISTERED');
           } else {
             // For agent-login, 401/403 usually means not registered
             if (kDebugMode) {
-              debugPrint('[WebBridge] âŒ User not registered (401/403)');
+              debugPrint('[WebBridge] [err] User not registered (401/403)');
             }
             throw Exception('USER_NOT_REGISTERED');
           }
@@ -725,7 +682,7 @@ class WarehouseWebBridge {
         final errorMsg =
             body['message']?.toString() ?? 'Token not returned from server';
         if (kDebugMode) {
-          debugPrint('[WebBridge] âŒ Normal login failed: $errorMsg');
+          debugPrint('[WebBridge] [err] Normal login failed: $errorMsg');
         }
         throw Exception(errorMsg);
       }
@@ -734,16 +691,16 @@ class WarehouseWebBridge {
       await saveToken(token);
 
       if (kDebugMode) {
-        debugPrint('[WebBridge] âœ… Normal login successful');
+        debugPrint('[WebBridge] [ok] Normal login successful');
       }
 
       return WarehouseLoginResult(
         token: token,
-        loginUser: _mapFromDynamic(data['user']),
+        loginUser: WarehouseAgentShopIdentity.mapFromDynamic(data['user']),
       );
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[WebBridge] âŒ Normal login error: $e');
+        debugPrint('[WebBridge] [err] Normal login error: $e');
         if (e is DioException) {
           debugPrint('[WebBridge] Status: ${e.response?.statusCode}');
           debugPrint('[WebBridge] Response: ${e.response?.data}');
@@ -760,7 +717,7 @@ class WarehouseWebBridge {
     try {
       if (kDebugMode) {
         debugPrint(
-            '[WebBridge] ðŸ” Testing connection to ${_dio.options.baseUrl}');
+            '[WebBridge] testConnection -> ${_dio.options.baseUrl}');
       }
 
       // Use a shorter timeout for connection test (default 5 seconds)
@@ -787,7 +744,7 @@ class WarehouseWebBridge {
           ),
         );
         if (kDebugMode) {
-          debugPrint('[WebBridge] âœ… Connection test successful');
+          debugPrint('[WebBridge] [ok] Connection test successful');
         }
         return true;
       } catch (e) {
@@ -797,7 +754,7 @@ class WarehouseWebBridge {
           if (status == 401 || status == 403) {
             if (kDebugMode) {
               debugPrint(
-                  '[WebBridge] âœ… Server is reachable (got $status - authentication required)');
+                  '[WebBridge] [ok] Server is reachable (got $status - authentication required)');
             }
             return true;
           }
@@ -812,7 +769,7 @@ class WarehouseWebBridge {
           );
           if (kDebugMode) {
             debugPrint(
-                '[WebBridge] âœ… Connection test successful (root endpoint)');
+                '[WebBridge] [ok] Connection test successful (root endpoint)');
           }
           return true;
         } catch (_) {
@@ -821,15 +778,15 @@ class WarehouseWebBridge {
       }
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[WebBridge] âŒ Connection test failed: $e');
+        debugPrint('[WebBridge] [err] Connection test failed: $e');
         if (e is DioException) {
           debugPrint('[WebBridge] Error type: ${e.type}');
           debugPrint('[WebBridge] URL: ${e.requestOptions.uri}');
           if (e.type == DioExceptionType.connectionTimeout ||
               e.type == DioExceptionType.connectionError) {
             debugPrint(
-                '[WebBridge] âš ï¸ Cannot reach server at ${_dio.options.baseUrl}');
-            debugPrint('[WebBridge] âš ï¸ Please check:');
+                '[WebBridge] [warn] Cannot reach server at ${_dio.options.baseUrl}');
+            debugPrint('[WebBridge] [warn] Please check:');
             debugPrint('[WebBridge]   1. Server is running');
             debugPrint('[WebBridge]   2. Server URL is correct');
             debugPrint('[WebBridge]   3. Network connection');
@@ -864,36 +821,10 @@ class WarehouseWebBridge {
         return await fetchAllShops();
       }
 
-      final extracted = await compute(_extractShopMaps, stores);
+      final extracted =
+          await compute(warehouseShopExtractMapsForCompute, stores);
       for (final s in extracted) {
-        final name = (s['name'] ?? 'N/A').toString();
-        final district = (s['district'] ?? '').toString().trim();
-        final address = (s['address'] ?? '').toString().trim();
-        final detailedAddress = (s['detailedAddress'] ?? '').toString().trim();
-        final fullAddress = [district, address, detailedAddress]
-            .where((s) => s.trim().isNotEmpty)
-            .join(', ');
-        final maxPurchaseAmount =
-            double.tryParse((s['maxPurchaseAmount'] ?? '').toString());
-
-        shops.add(
-          Shop(
-            id: (s['id'] ?? '').toString(),
-            name: name,
-            address: fullAddress.isEmpty ? 'N/A' : fullAddress,
-            latitude: (s['locationLatitude'] as double?) ?? 0.0,
-            longitude: (s['locationLongitude'] as double?) ?? 0.0,
-            phone: (s['phoneNumber'] ?? '').toString(),
-            email: null,
-            registrationNumber: s['registrationNumber']?.toString(),
-            maxPurchaseAmount: maxPurchaseAmount,
-            customerTypeId: (s['customerTypeId'] as int?),
-            status: 'active',
-            orders: const [],
-            sales: const [],
-            lastVisit: DateTime.now(),
-          ),
-        );
+        shops.add(WarehouseAgentShopIdentity.shopFromExtractedCustomerRow(s));
       }
     } catch (e) {
       // If agent stores fetch fails, fallback to regular customers endpoint
@@ -967,7 +898,11 @@ class WarehouseWebBridge {
 
     final discountPercent =
         int.tryParse((p['discountPercent'] ?? '').toString());
-    final promotionText = (p['promotionText'] ?? '').toString().trim();
+    final rawPromo = (p['promotionText'] ?? '').toString().trim();
+    final promotionText = PromotionPricingUtils.mergeCatalogPromotionText(
+      name,
+      rawPromo.isEmpty ? null : rawPromo,
+    );
 
     final byType = p['pricesByCustomerType'] as Map<int, double>?;
     return Product(
@@ -975,7 +910,7 @@ class WarehouseWebBridge {
       name: name,
       price: price,
       discountPercent: discountPercent,
-      promotionText: promotionText.isEmpty ? null : promotionText,
+      promotionText: promotionText,
       description: p['nameEnglish']?.toString(),
       category: p['categoryName']?.toString(),
       supplierName: p['supplierName']?.toString(),
@@ -992,6 +927,9 @@ class WarehouseWebBridge {
       /// Backend-ийн `prices` массив — серверийн утгыг хувиргалтгүй хадгална.
       pricesByCustomerType: byType,
       unitPriceExcludesVat: excludesVat,
+      // Normalize active state from the raw API map so mobile UI doesn't assume
+      // "null => active" and later fail order creation with backend validation.
+      isActive: isProductActiveFromApiMap(p),
     );
   }
 
@@ -1012,7 +950,7 @@ class WarehouseWebBridge {
   /// Supports retry logic for transient network errors.
   Future<List<Product>> fetchAllProducts({
     int pageSize = 200,
-    bool includeInactive = true,
+    bool includeInactive = false,
   }) async {
     final products = <Product>[];
     var page = 1;
@@ -1022,14 +960,14 @@ class WarehouseWebBridge {
 
     if (kDebugMode) {
       debugPrint(
-          '[WebBridge] ðŸš€ Starting product fetch (pageSize: $pageSize, includeInactive: $includeInactive)');
+          '[WebBridge] products: fetch start (pageSize=$pageSize includeInactive=$includeInactive)');
     }
 
     try {
       do {
         if (kDebugMode) {
           debugPrint(
-              '[WebBridge] ðŸ“„ Fetching products page $page/$totalPages...');
+              '[WebBridge] products: page $page/$totalPages ...');
         }
 
         try {
@@ -1049,7 +987,27 @@ class WarehouseWebBridge {
 
           if (kDebugMode) {
             debugPrint(
-                '[WebBridge] ðŸ“¦ Found ${rawProducts.length} products in page $page');
+                '[WebBridge] products: page $page raw count=${rawProducts.length}');
+            // Debug: check what "active/inactive" fields backend sends
+            if (rawProducts.isNotEmpty) {
+              final sampleCount =
+                  rawProducts.length < 3 ? rawProducts.length : 3;
+              for (var i = 0; i < sampleCount; i++) {
+                final it = rawProducts[i];
+                if (it is Map) {
+                  final m = it.cast<String, dynamic>();
+                  final nm = m['nameMongolian'] ?? m['nameEnglish'] ?? '';
+                  debugPrint(
+                    '[WebBridge] products: sample#$i id=${m['id']} name=$nm '
+                    'isActive=${m['isActive']} stock=${m['stockQuantity']}',
+                  );
+                } else {
+                  debugPrint(
+                    '[WebBridge] products: sample#$i not a Map (${it.runtimeType})',
+                  );
+                }
+              }
+            }
           }
 
           // Extract pagination info
@@ -1060,7 +1018,7 @@ class WarehouseWebBridge {
 
           if (rawProducts.isEmpty && page < totalPages && kDebugMode) {
             debugPrint(
-                '[WebBridge] âš ï¸ Empty page $page but totalPages is $totalPages');
+                '[WebBridge] [warn] Empty page $page but totalPages is $totalPages');
           }
 
           // Extract and convert products
@@ -1081,7 +1039,7 @@ class WarehouseWebBridge {
           retryCount++;
           if (kDebugMode) {
             debugPrint(
-                '[WebBridge] âš ï¸ Error fetching page $page (attempt $retryCount/$maxRetries): $e');
+                '[WebBridge] [warn] Error fetching page $page (attempt $retryCount/$maxRetries): $e');
           }
 
           // Retry logic for transient errors
@@ -1089,7 +1047,7 @@ class WarehouseWebBridge {
             final delayMs = retryCount * 1000; // Exponential backoff
             if (kDebugMode) {
               debugPrint(
-                  '[WebBridge] ðŸ”„ Retrying page $page after ${delayMs}ms...');
+                  '[WebBridge] products: retry page $page in ${delayMs}ms');
             }
             await Future.delayed(Duration(milliseconds: delayMs));
             continue; // Retry same page
@@ -1097,13 +1055,13 @@ class WarehouseWebBridge {
             // Max retries reached or non-retryable error
             if (kDebugMode) {
               debugPrint(
-                  '[WebBridge] âŒ Failed to fetch page $page after $retryCount attempts');
+                  '[WebBridge] [err] Failed to fetch page $page after $retryCount attempts');
             }
             // Return partial results if available
             if (products.isNotEmpty) {
               if (kDebugMode) {
                 debugPrint(
-                    '[WebBridge] âš ï¸ Returning ${products.length} products fetched so far (page $page failed)');
+                    '[WebBridge] [warn] Returning ${products.length} products fetched so far (page $page failed)');
               }
               return products;
             }
@@ -1115,7 +1073,7 @@ class WarehouseWebBridge {
 
       if (kDebugMode) {
         debugPrint(
-            '[WebBridge] âœ… Successfully fetched ${products.length} total products from $totalPages pages');
+            '[WebBridge] [ok] Successfully fetched ${products.length} total products from $totalPages pages');
         if (products.isNotEmpty) {
           final productsWithPrice = products.where((p) => p.price > 0).length;
           final withoutPrice = products.length - productsWithPrice;
@@ -1127,7 +1085,7 @@ class WarehouseWebBridge {
       return products;
     } catch (e, stackTrace) {
       if (kDebugMode) {
-        debugPrint('[WebBridge] âŒ Fatal error fetching products: $e');
+        debugPrint('[WebBridge] [err] Fatal error fetching products: $e');
         if (e is DioException) {
           debugPrint('[WebBridge] Status: ${e.response?.statusCode}');
           debugPrint('[WebBridge] Response: ${e.response?.data}');
@@ -1138,18 +1096,34 @@ class WarehouseWebBridge {
     }
   }
 
+  /// Production загвар: `GET customers?page=&limit=` — **хуудас бүрээр** татаж нэгтгэнэ
+  /// (бүх мөрийг нэг response-д авахгүй — сервер/app ачаалал багатай).
+  ///
+  /// Зогсох: хоосон хуудас; эсвэл [WarehouseAgentShopIdentity.customersTotalHintFromListData] /
+  /// [WarehouseAgentShopIdentity.customersTotalHintFromPagination]-аар ирсэн **нийт** тоонд
+  /// хүрсэн үед; эсвэл (hint байхгүй) давхар `id`-тай хуудас. `pagination.totalPages` буруу
+  /// байж болох тул зөвхөн энэ талбарт найдахгүй.
+  ///
+  /// Query: [WarehouseAgentShopIdentity.customersListQueryForAllAgents] (backend filter).
   Future<List<Shop>> fetchAllShops({int pageSize = 200}) async {
     final shops = <Shop>[];
+    final seenShopIds = <String>{};
     var page = 1;
-    var totalPages = 1;
+    int? totalCustomersHint;
+    const maxPages = 1000;
 
     try {
-      do {
+      while (page <= maxPages) {
         if (kDebugMode) {
           debugPrint('[WebBridge] Fetching shops page $page...');
         }
-        final body = await _getJson('customers',
-            qp: {'limit': pageSize, 'page': page, 'allShops': 'true'});
+        final body = await _getJson(
+          'customers',
+          qp: WarehouseAgentShopIdentity.customersListQueryForAllAgents(
+            page: page,
+            limit: pageSize,
+          ),
+        );
 
         if (kDebugMode) {
           debugPrint('[WebBridge] Received customers response: ${body.keys}');
@@ -1157,6 +1131,13 @@ class WarehouseWebBridge {
 
         final data = _unwrapData(body);
         final customers = (data['customers'] as List?) ?? const [];
+
+        if (customers.isEmpty) {
+          if (kDebugMode && page > 1) {
+            debugPrint('[WebBridge] Shops: хоосон хуудас $page — зогсоно');
+          }
+          break;
+        }
 
         if (kDebugMode) {
           debugPrint(
@@ -1166,57 +1147,93 @@ class WarehouseWebBridge {
         final pagination = (data['pagination'] is Map)
             ? (data['pagination'] as Map).cast<String, dynamic>()
             : <String, dynamic>{};
-        totalPages = (pagination['totalPages'] as num?)?.toInt() ?? 1;
+        final totalPages = (pagination['totalPages'] as num?)?.toInt();
+        final hint = WarehouseAgentShopIdentity.customersTotalHintFromListData(
+              data,
+            ) ??
+            WarehouseAgentShopIdentity.customersTotalHintFromPagination(
+              pagination,
+            );
+        if (hint != null) {
+          totalCustomersHint ??= hint;
+        }
+        if (kDebugMode && totalPages != null) {
+          debugPrint(
+              '[WebBridge] pagination totalPages=$totalPages (зөвхөн лог; давтан таталт нь баганы уртаар шийднэ)');
+        }
+        if (kDebugMode && totalCustomersHint != null) {
+          debugPrint(
+              '[WebBridge] pagination total/hint=$totalCustomersHint, collected=${shops.length}',
+          );
+        }
 
-        final extracted = await compute(_extractShopMaps, customers);
+        final extracted =
+            await compute(warehouseShopExtractMapsForCompute, customers);
         if (kDebugMode) {
           debugPrint(
               '[WebBridge] Extracted ${extracted.length} shops from page $page');
         }
+        var addedNewThisPage = 0;
         for (final c in extracted) {
-          final name = (c['name'] ?? 'N/A').toString();
-          final district = (c['district'] ?? '').toString().trim();
-          final address = (c['address'] ?? '').toString().trim();
-          final detailedAddress =
-              (c['detailedAddress'] ?? '').toString().trim();
-          final fullAddress = [district, address, detailedAddress]
-              .where((s) => s.trim().isNotEmpty)
-              .join(', ');
-          final maxPurchaseAmount =
-              double.tryParse((c['maxPurchaseAmount'] ?? '').toString());
+          final idStr = (c['id'] ?? '').toString();
+          if (idStr.isNotEmpty && seenShopIds.contains(idStr)) {
+            continue;
+          }
+          if (idStr.isNotEmpty) {
+            seenShopIds.add(idStr);
+          }
 
           shops.add(
-            Shop(
-              id: (c['id'] ?? '').toString(),
-              name: name,
-              address: fullAddress.isEmpty ? 'N/A' : fullAddress,
-              latitude: (c['locationLatitude'] as double?) ?? 0.0,
-              longitude: (c['locationLongitude'] as double?) ?? 0.0,
-              phone: (c['phoneNumber'] ?? '').toString(),
-              email: null,
-              registrationNumber: c['registrationNumber']?.toString(),
-              maxPurchaseAmount: maxPurchaseAmount,
-              customerTypeId: (c['customerTypeId'] as int?),
-              status: 'active',
-              orders: const [],
-              sales: const [],
-              lastVisit: DateTime.now(),
-            ),
+            WarehouseAgentShopIdentity.shopFromExtractedCustomerRow(c),
           );
+          addedNewThisPage++;
+        }
+
+        if (totalCustomersHint != null &&
+            shops.length >= totalCustomersHint) {
+          if (kDebugMode) {
+            debugPrint(
+                '[WebBridge] Shops: нийт $totalCustomersHint хүрсэн — зогсоно',
+            );
+          }
+          break;
+        }
+
+        if (extracted.isNotEmpty && addedNewThisPage == 0) {
+          final needMore = totalCustomersHint != null &&
+              shops.length < totalCustomersHint;
+          if (needMore) {
+            if (kDebugMode) {
+              debugPrint(
+                  '[WebBridge] Shops: page $page давхар id — гэхдээ нийт $totalCustomersHint > ${shops.length}, дараагийн хуудас',
+              );
+            }
+          } else {
+            if (kDebugMode) {
+              debugPrint(
+                  '[WebBridge] Shops: page $page дээр шинэ id байхгүй (давтагдсан хуудас) — зогсоно');
+            }
+            break;
+          }
         }
 
         page += 1;
-      } while (page <= totalPages);
+      }
+
+      if (page > maxPages && kDebugMode) {
+        debugPrint(
+            '[WebBridge] ⚠️ Shops: $maxPages хуудсыг давсан — аюулгүй зогсоолт');
+      }
 
       if (kDebugMode) {
         debugPrint(
-            '[WebBridge] âœ… Successfully fetched ${shops.length} total shops');
+            '[WebBridge] [ok] Successfully fetched ${shops.length} total shops');
       }
 
       return shops;
     } catch (e, stackTrace) {
       if (kDebugMode) {
-        debugPrint('[WebBridge] âŒ Error fetching shops: $e');
+        debugPrint('[WebBridge] [err] Error fetching shops: $e');
         debugPrint('[WebBridge] Stack trace: $stackTrace');
       }
       rethrow;
@@ -1228,7 +1245,14 @@ class WarehouseWebBridge {
   /// POST /api/orders
   /// Body: {
   ///   customerId: int,
-  ///   items: [{ productId: int, quantity: int }],
+  ///   items: [{
+  ///     productId: int,
+  ///     quantity: int, // нийт ширхэг (төлөх+үнэгүй)
+  ///     unitPrice: num,
+  ///     paidQuantity?: int, // төлбөрт орох (1+1)
+  ///     freeQuantity?: int,
+  ///     lineTotal?: num, // төлбөрт зөвхөн төлөх дээр үндэслэсэн мөрийн дүн
+  ///   }],
   ///   orderType?: 'Market' | 'Store',
   ///   paymentMethod?: 'Cash' | 'Credit' | 'BankTransfer' | 'Sales' | 'Padan',
   ///   userWeveToken?: string  // Optional: Weve authentication token from logged-in user
@@ -1372,6 +1396,20 @@ class WarehouseWebBridge {
       data: {
         if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
       },
+    );
+    return _unwrapData(body);
+  }
+
+  /// Mark eBarimt as returned and restock items (server-side transaction).
+  ///
+  /// POST /api/orders/:id/ebarimt-return-done
+  Future<Map<String, dynamic>> ebarimtReturnDone({
+    required int orderId,
+    required String returnId,
+  }) async {
+    final body = await _postJson(
+      'orders/$orderId/ebarimt-return-done',
+      data: {'returnId': returnId},
     );
     return _unwrapData(body);
   }

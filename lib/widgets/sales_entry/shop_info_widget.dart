@@ -34,18 +34,18 @@ class ShopInfoWidget extends StatelessWidget {
         final overLimit = hasLimit && totalAmount > maxPurchase;
 
         return Container(
-          margin: const EdgeInsets.only(top: 12),
-          padding: const EdgeInsets.all(18),
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: const Color(0xFF0D9488).withValues(alpha: 0.35),
               width: 1.5,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -57,7 +57,7 @@ class ShopInfoWidget extends StatelessWidget {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       color: const Color(0xFF0D9488).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
@@ -65,10 +65,10 @@ class ShopInfoWidget extends StatelessWidget {
                     child: const Icon(
                       Icons.store_rounded,
                       color: Color(0xFF0D9488),
-                      size: 22,
+                      size: 20,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -76,19 +76,20 @@ class ShopInfoWidget extends StatelessWidget {
                         Text(
                           'Сонгосон дэлгүүр',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11,
                             fontWeight: FontWeight.w600,
                             color: Colors.grey[600],
                             letterSpacing: 0.5,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
                           shop.name,
                           style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
                             color: Color(0xFF1F2937),
+                            letterSpacing: -0.2,
                           ),
                         ),
                       ],
@@ -96,24 +97,24 @@ class ShopInfoWidget extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-              const Divider(height: 1),
               const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 10),
 
               // Бүртгэлийн дугаар - Always show this field
               Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
                       Icons.badge_outlined,
-                      size: 18,
+                      size: 16,
                       color: regText != null
                           ? const Color(0xFF6366F1)
                           : Colors.grey[400],
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -121,16 +122,16 @@ class ShopInfoWidget extends StatelessWidget {
                           Text(
                             'Бүртгэлийн дугаар',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 11,
                               fontWeight: FontWeight.w600,
                               color: Colors.grey[600],
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 2),
                           Text(
                             regText ?? 'Мэдээлэл байхгүй',
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               color: regText != null
                                   ? const Color(0xFF1F2937)
                                   : Colors.grey[500],
@@ -152,13 +153,13 @@ class ShopInfoWidget extends StatelessWidget {
               // Утас
               if (phoneText != null)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.only(bottom: 8),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Icon(Icons.phone,
-                          size: 18, color: Color(0xFF6366F1)),
-                      const SizedBox(width: 12),
+                          size: 16, color: Color(0xFF6366F1)),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -166,16 +167,16 @@ class ShopInfoWidget extends StatelessWidget {
                             Text(
                               'Утас',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontSize: 11,
                                 fontWeight: FontWeight.w600,
                                 color: Colors.grey[600],
                               ),
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 2),
                             Text(
                               phoneText,
                               style: const TextStyle(
-                                fontSize: 14,
+                                fontSize: 13,
                                 color: Color(0xFF1F2937),
                                 fontWeight: FontWeight.w600,
                               ),
@@ -190,13 +191,13 @@ class ShopInfoWidget extends StatelessWidget {
               // Хаяг
               if (addressText != null)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.only(bottom: 8),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Icon(Icons.place,
-                          size: 18, color: Color(0xFF6366F1)),
-                      const SizedBox(width: 12),
+                          size: 16, color: Color(0xFF6366F1)),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -204,16 +205,16 @@ class ShopInfoWidget extends StatelessWidget {
                             Text(
                               'Хаяг',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontSize: 11,
                                 fontWeight: FontWeight.w600,
                                 color: Colors.grey[600],
                               ),
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 2),
                             Text(
                               addressText,
                               style: const TextStyle(
-                                fontSize: 14,
+                                fontSize: 13,
                                 color: Color(0xFF1F2937),
                               ),
                               maxLines: 3,
@@ -226,9 +227,9 @@ class ShopInfoWidget extends StatelessWidget {
                   ),
                 ),
 
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               const Divider(height: 1),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
 
               // Худалдан авалтын хязгаар
               Row(
@@ -236,12 +237,12 @@ class ShopInfoWidget extends StatelessWidget {
                 children: [
                   Icon(
                     Icons.shopping_bag_outlined,
-                    size: 18,
+                    size: 16,
                     color: overLimit
                         ? const Color(0xFFDC2626)
                         : const Color(0xFF6366F1),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -249,22 +250,22 @@ class ShopInfoWidget extends StatelessWidget {
                         Text(
                           '1 удаагийн худалдан авалт',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11,
                             fontWeight: FontWeight.w600,
                             color: Colors.grey[600],
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
                           hasLimit
                               ? '${maxPurchase.toStringAsFixed(0)} ₮'
                               : 'Хязгааргүй',
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: 14,
                             color: overLimit
                                 ? const Color(0xFFDC2626)
                                 : const Color(0xFF0D9488),
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                       ],
@@ -275,28 +276,28 @@ class ShopInfoWidget extends StatelessWidget {
 
               if (overLimit)
                 Padding(
-                  padding: const EdgeInsets.only(top: 12),
+                  padding: const EdgeInsets.only(top: 10),
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFEF2F2),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                          color: const Color(0xFFDC2626).withOpacity(0.3)),
+                          color: const Color(0xFFDC2626).withValues(alpha: 0.3)),
                     ),
                     child: Row(
                       children: [
                         const Icon(
                           Icons.warning_rounded,
                           color: Color(0xFFDC2626),
-                          size: 20,
+                          size: 18,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'Нийт дүн дээд хэмжээнээс хэтэрсэн байна',
                             style: TextStyle(
-                              fontSize: 13,
+                              fontSize: 12,
                               color: const Color(0xFFDC2626),
                               fontWeight: FontWeight.w600,
                             ),

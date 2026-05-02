@@ -11,6 +11,8 @@ import '../../models/order_model.dart';
 import '../../models/sales_model.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../widgets/go_pop_scope.dart';
+
 /// Нэг backend захиалга / нэг минутын legacy борлуулалтыг нэг цэг дээр нэгтгэнэ.
 List<List<Sales>> clusterSalesForMap(List<Sales> sales) {
   final withOrder = <int, List<Sales>>{};
@@ -200,9 +202,11 @@ class _SalesMapScreenState extends State<SalesMapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Борлуулалтын газрын зураг'),
+    return GoPopScope(
+      fallbackRoute: '/sales-dashboard',
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Борлуулалтын газрын зураг'),
         backgroundColor: const Color(0xFF10B981),
         foregroundColor: Colors.white,
         leading: IconButton(
@@ -643,6 +647,7 @@ class _SalesMapScreenState extends State<SalesMapScreen> {
             ],
           );
         },
+      ),
       ),
     );
   }

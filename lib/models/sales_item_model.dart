@@ -37,6 +37,13 @@ class SalesItem {
       (discountPercent != null && discountPercent! > 0) ||
       ((promotionText ?? '').trim().isNotEmpty);
 
+  /// [PromotionPricingUtils.applyFinalPricingToCart]-аар тооцоолсон эцсийн нэгж/мөр;
+  /// API-д `unitPrice` + `lineTotal` (warehouse-ийг өөрчлөхгүйгээр).
+  final double? finalUnitPrice;
+
+  /// Төлөх ширхэг дээр үндэслэсэн мөрийн нийт (`lineTotal`).
+  final double? finalLineTotal;
+
   /// Төлбөрлөсөн ширхэг.
   int get paidQuantity => quantity - freeQuantity;
 
@@ -61,6 +68,8 @@ class SalesItem {
     this.unitPriceExcludesVat = false,
     this.discountPercent,
     this.promotionText,
+    this.finalUnitPrice,
+    this.finalLineTotal,
   })  : assert(quantity >= 0),
         orderedQuantity =
             (orderedQuantity ?? quantity).clamp(0, 1 << 30).toInt(),
@@ -116,6 +125,10 @@ class SalesItem {
       unitPriceExcludesVat: json['unitPriceExcludesVat'] == true,
       discountPercent: (json['discountPercent'] as num?)?.toInt(),
       promotionText: json['promotionText']?.toString(),
+      finalUnitPrice: (json['finalUnitPrice'] as num?)?.toDouble() ??
+          (json['lockedPayableUnitPrice'] as num?)?.toDouble(),
+      finalLineTotal: (json['finalLineTotal'] as num?)?.toDouble() ??
+          (json['lockedPayableLineTotal'] as num?)?.toDouble(),
     );
   }
 
@@ -133,6 +146,8 @@ class SalesItem {
       if (discountPercent != null) 'discountPercent': discountPercent,
       if (promotionText != null && promotionText!.trim().isNotEmpty)
         'promotionText': promotionText,
+      if (finalUnitPrice != null) 'finalUnitPrice': finalUnitPrice,
+      if (finalLineTotal != null) 'finalLineTotal': finalLineTotal,
       'total': total,
     };
   }

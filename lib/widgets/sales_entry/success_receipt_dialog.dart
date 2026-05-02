@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../models/sales_item_model.dart';
 import '../../providers/product_provider.dart';
 import '../../providers/shop_provider.dart';
+import '../../utils/promotion_pricing_utils.dart';
 import '../../services/bluetooth_printer_service.dart';
 import '../../services/pos_receipt_api_service.dart';
 import 'sales_receipt_preview.dart';
@@ -62,8 +63,24 @@ class _SuccessReceiptDialogState extends State<SuccessReceiptDialog> {
   String? _bannerMessage;
   bool _bannerIsWarning = false;
 
-  double get _total =>
-      widget.savedItems.fold(0.0, (sum, item) => sum + item.total);
+  double get _total {
+    final elig =
+        PromotionPricingUtils.cartWideBillablePaidPiecesSum(widget.savedItems);
+    return widget.savedItems.fold<double>(
+      0.0,
+      (sum, item) =>
+          sum +
+          PromotionPricingUtils.lineTotalFromDiscountedUnit(
+            unitPrice: item.price,
+            cartBulkMultiplier:
+                PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+              item: item,
+              eligiblePaidPiecesTotal: elig,
+            ),
+            paidPieces: item.paidQuantity,
+          ),
+    );
+  }
 
   @override
   void initState() {
@@ -205,11 +222,22 @@ class _SuccessReceiptDialogState extends State<SuccessReceiptDialog> {
         final productProvider =
             Provider.of<ProductProvider>(context, listen: false);
 
+        final posElig =
+            PromotionPricingUtils.cartWideBillablePaidPiecesSum(widget.savedItems);
         final posItems = widget.savedItems.map((it) {
           final product = productProvider.getProductById(it.productId);
           final bar = (product?.barcode ?? product?.productCode ?? it.productId)
               .toString();
-          final unitGross = PosReceiptApiService.unitPriceGrossFromSalesItem(it);
+          final baseGross =
+              PosReceiptApiService.unitPriceGrossFromSalesItem(it);
+          final unitGross = PromotionPricingUtils.discountedUnitPrice(
+            unitPrice: baseGross,
+            cartBulkMultiplier:
+                PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+              item: it,
+              eligiblePaidPiecesTotal: posElig,
+            ),
+          );
           return PosReceiptApiService.buildPosItem(
             name: it.productName,
             barCode: bar.isNotEmpty ? bar : it.productId,

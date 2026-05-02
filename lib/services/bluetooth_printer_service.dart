@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/order_model.dart';
 import '../models/sales_item_model.dart';
 import '../utils/cp866_codec.dart';
+import '../utils/promotion_pricing_utils.dart';
 import '../utils/receipt_vat.dart';
 import '../utils/sales_receipt_raster.dart';
 
@@ -372,8 +373,21 @@ class BluetoothPrinterService {
       return false;
     }
 
-    final totalAmount =
-        items.fold(0.0, (sum, item) => sum + item.receiptLineGross);
+    final elig = PromotionPricingUtils.cartWideBillablePaidPiecesSum(items);
+    final totalAmount = items.fold<double>(
+      0.0,
+      (sum, item) =>
+          sum +
+          PromotionPricingUtils.lineTotalFromDiscountedUnit(
+            unitPrice: item.receiptUnitGross,
+            cartBulkMultiplier:
+                PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+              item: item,
+              eligiblePaidPiecesTotal: elig,
+            ),
+            paidPieces: item.paidQuantity,
+          ),
+    );
     final now = DateTime.now();
 
     late List<int> bytes;
@@ -618,16 +632,24 @@ class BluetoothPrinterService {
     bytes += generator.text(line);
     bytes += generator.text('БАРАА', styles: PosStyles(bold: true));
 
+    final eligQr =
+        PromotionPricingUtils.cartWideBillablePaidPiecesSum(items);
     for (final item in items) {
+      final lineBulk =
+          PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+        item: item,
+        eligiblePaidPiecesTotal: eligQr,
+      );
       bytes += generator.text(item.productName);
       bytes += _row12(generator, [
         PosColumn(
           text:
-              '${item.paidQuantity} x ${item.receiptUnitGross.toStringAsFixed(0)}',
+              '${item.paidQuantity} x ${PromotionPricingUtils.discountedUnitPrice(unitPrice: item.receiptUnitGross, cartBulkMultiplier: lineBulk).toStringAsFixed(0)}',
           width: 6,
         ),
         PosColumn(
-          text: '${item.receiptLineGross.toStringAsFixed(0)} T',
+          text:
+              '${PromotionPricingUtils.lineTotalFromDiscountedUnit(unitPrice: item.receiptUnitGross, cartBulkMultiplier: lineBulk, paidPieces: item.paidQuantity).toStringAsFixed(0)} T',
           width: 6,
           styles: PosStyles(align: PosAlign.right),
         ),
@@ -657,25 +679,7 @@ class BluetoothPrinterService {
         styles: PosStyles(bold: true, align: PosAlign.right),
       ),
     ]);
-    final vatBr = ReceiptVatFromGross.fromGrossTotal(totalAmount);
-    bytes += _row12(generator, [
-      PosColumn(text: '\u041d\u04e8\u0410\u0422 10%:', width: 6),
-      PosColumn(
-        text: '${vatBr.vatAmount.toStringAsFixed(0)} T',
-        width: 6,
-        styles: PosStyles(align: PosAlign.right),
-      ),
-    ]);
-    bytes += _row12(generator, [
-      PosColumn(text: '\u0426\u044d\u0432\u044d\u0440:', width: 6),
-      PosColumn(
-        text: '${vatBr.netAmount.toStringAsFixed(0)} T',
-        width: 6,
-        styles: PosStyles(align: PosAlign.right),
-      ),
-    ]);
-    bytes += generator.text(
-        '(\u043d\u0438\u0439\u0442=\u041d\u04e8\u0410\u0422 \u043e\u0440\u0441\u043e\u043d)');
+    // VAT breakdown removed: receipt lines and totals are already VAT-included (gross).
     bytes += generator.text(line);
     bytes += generator.text('Төлбөр: $paymentMethod');
     bytes += generator.text('Төрөл: Хувь хүн');
@@ -743,16 +747,24 @@ class BluetoothPrinterService {
     bytes += generator.text(line);
     bytes += generator.text('БАРАА', styles: PosStyles(bold: true));
 
+    final eligOrg =
+        PromotionPricingUtils.cartWideBillablePaidPiecesSum(items);
     for (final item in items) {
+      final lineBulk =
+          PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+        item: item,
+        eligiblePaidPiecesTotal: eligOrg,
+      );
       bytes += generator.text(item.productName);
       bytes += _row12(generator, [
         PosColumn(
           text:
-              '${item.paidQuantity} x ${item.receiptUnitGross.toStringAsFixed(0)}',
+              '${item.paidQuantity} x ${PromotionPricingUtils.discountedUnitPrice(unitPrice: item.receiptUnitGross, cartBulkMultiplier: lineBulk).toStringAsFixed(0)}',
           width: 6,
         ),
         PosColumn(
-          text: '${item.receiptLineGross.toStringAsFixed(0)} T',
+          text:
+              '${PromotionPricingUtils.lineTotalFromDiscountedUnit(unitPrice: item.receiptUnitGross, cartBulkMultiplier: lineBulk, paidPieces: item.paidQuantity).toStringAsFixed(0)} T',
           width: 6,
           styles: PosStyles(align: PosAlign.right),
         ),
@@ -782,25 +794,7 @@ class BluetoothPrinterService {
         styles: PosStyles(bold: true, align: PosAlign.right),
       ),
     ]);
-    final vatBrOrg = ReceiptVatFromGross.fromGrossTotal(totalAmount);
-    bytes += _row12(generator, [
-      PosColumn(text: '\u041d\u04e8\u0410\u0422 10%:', width: 6),
-      PosColumn(
-        text: '${vatBrOrg.vatAmount.toStringAsFixed(0)} T',
-        width: 6,
-        styles: PosStyles(align: PosAlign.right),
-      ),
-    ]);
-    bytes += _row12(generator, [
-      PosColumn(text: '\u0426\u044d\u0432\u044d\u0440:', width: 6),
-      PosColumn(
-        text: '${vatBrOrg.netAmount.toStringAsFixed(0)} T',
-        width: 6,
-        styles: PosStyles(align: PosAlign.right),
-      ),
-    ]);
-    bytes += generator.text(
-        '(\u043d\u0438\u0439\u0442=\u041d\u04e8\u0410\u0422 \u043e\u0440\u0441\u043e\u043d)');
+    // VAT breakdown removed: receipt lines and totals are already VAT-included (gross).
     bytes += generator.text(line);
     bytes += generator.text('Төлбөр: $paymentMethod');
     bytes += generator.text('Төрөл: Байгуулга');
@@ -879,8 +873,12 @@ class BluetoothPrinterService {
 
     for (final item in order.items) {
       bytes.addAll(_textBytes(item.productName));
+      final paid = item.paidQuantity;
+      final qtyLabel = item.freeQuantity > 0
+          ? '$paid x ${item.unitPrice.toStringAsFixed(0)} (+${item.freeQuantity} \u04af\u043d\u044d\u0433\u04af\u0439)'
+          : '${item.quantity} x ${item.unitPrice.toStringAsFixed(0)}';
       bytes.addAll(_twoColumnLine(
-        '${item.quantity} x ${item.unitPrice.toStringAsFixed(0)}',
+        qtyLabel,
         '${item.totalPrice.toStringAsFixed(0)} T',
         w,
       ));

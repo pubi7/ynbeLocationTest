@@ -118,6 +118,15 @@ class OrderItem {
   /// Акциар үнэгүй ширхэг (1+1 гэх мэт).
   final int freeQuantity;
 
+  /// Төлбөрт орох ширхэг = [quantity] − [freeQuantity].
+  int get paidQuantity {
+    final fq = freeQuantity < 0
+        ? 0
+        : (freeQuantity > quantity ? quantity : freeQuantity);
+    final p = quantity - fq;
+    return p < 0 ? 0 : p;
+  }
+
   OrderItem({
     required this.productId,
     required this.productName,
@@ -132,12 +141,22 @@ class OrderItem {
 
   int get _upb => unitsPerBox <= 0 ? 1 : unitsPerBox;
 
+  /// Жижиг дэлгэцийн тоо ширхэгийн мөр (1+1: нийт = төлөх + үнэгүй гэж тодорхой).
+  String get pieceQuantitySubtitle {
+    if (freeQuantity <= 0) return '$quantity ш';
+    final paid = paidQuantity;
+    final fq = quantity - paid;
+    return 'нийт $quantity ш ($paid төлөх + $fq үнэгүй)';
+  }
+
   /// Дэлгэцэнд: хайрцаг + нэмэлт ширхэг / нийт ширхэг.
   String get boxPieceSummary {
     final upb = _upb;
     if (upb <= 1) {
       if (freeQuantity > 0) {
-        return '$quantity ширхэг (+$freeQuantity үнэгүй)';
+        final paid = paidQuantity;
+        final fq = quantity - paid;
+        return 'нийт $quantity ширхэг ($paid төлөх + $fq үнэгүй)';
       }
       return '$quantity ширхэг';
     }
@@ -147,7 +166,9 @@ class OrderItem {
         ? '$boxes хайрцаг + $extra ширхэг (нийт $quantity ш)'
         : '$boxes хайрцаг (нийт $quantity ш)';
     if (freeQuantity > 0) {
-      return '$base (+$freeQuantity үнэгүй)';
+      final paid = paidQuantity;
+      final fq = quantity - paid;
+      return '$base — $paid төлөх + $fq үнэгүй';
     }
     return base;
   }

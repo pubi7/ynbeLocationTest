@@ -58,7 +58,7 @@ class ShopPickerWidget extends StatelessWidget {
                   color: isSelected
                       ? const Color(0xFF0D9488)
                       : (hasError ? const Color(0xFFDC2626) : Colors.grey[600]),
-                  size: 22,
+                  size: 20,
                 ),
                 suffixIcon: selectedShopName != null
                     ? IconButton(
@@ -120,9 +120,11 @@ class ShopPickerWidget extends StatelessWidget {
                   borderSide:
                       const BorderSide(color: Color(0xFFDC2626), width: 2),
                 ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               ),
               style: TextStyle(
-                fontSize: 16,
+                fontSize: 15,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 color: isSelected ? const Color(0xFF0D9488) : null,
               ),

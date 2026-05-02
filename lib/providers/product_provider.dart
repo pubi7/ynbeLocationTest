@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/product_model.dart';
+import '../utils/product_active_utils.dart';
 
 class ProductProvider extends ChangeNotifier {
   List<Product> _products = [];
@@ -12,7 +13,8 @@ class ProductProvider extends ChangeNotifier {
   }
 
   void setProducts(List<Product> products) {
-    _products = products;
+    // Зөвхөн идэвхтэй барааг хадгална (идэвхгүйг апп даяар нууна).
+    _products = products.where(isProductActive).toList();
     notifyListeners();
   }
 
@@ -39,6 +41,18 @@ class ProductProvider extends ChangeNotifier {
 
   void deleteProduct(String id) {
     _products.removeWhere((product) => product.id == id);
+    notifyListeners();
+  }
+
+  /// Захиалга цуцлахад API үлдэгдэл шууд сэргээхгүй үед: мөр бүрийн [quantity] (нийт ширхэг)-ийг нөөцөд нэмнө.
+  void bumpStockByProductId(Map<String, int> addPiecesByProductId) {
+    if (addPiecesByProductId.isEmpty) return;
+    _products = _products.map((p) {
+      final add = addPiecesByProductId[p.id];
+      if (add == null || add == 0) return p;
+      final cur = p.stockQuantity ?? 0;
+      return p.withStockQuantity(cur + add);
+    }).toList();
     notifyListeners();
   }
 }

@@ -82,15 +82,15 @@ class WeveSyncService {
 
         for (const weveProduct of products) {
           try {
-            // Check if product exists by product code or barcode
-            const existingProduct = await prisma.product.findFirst({
-              where: {
-                OR: [
-                  { productCode: weveProduct.productCode || undefined },
-                  { barcode: weveProduct.barcode || undefined },
-                ],
-              },
-            });
+            // Check if product exists by product code or barcode (omit undefined — Prisma OR + TS)
+            const matchOr: Array<{ productCode: string } | { barcode: string }> = [];
+            if (weveProduct.productCode) matchOr.push({ productCode: weveProduct.productCode });
+            if (weveProduct.barcode) matchOr.push({ barcode: weveProduct.barcode });
+
+            const existingProduct =
+              matchOr.length > 0
+                ? await prisma.product.findFirst({ where: { OR: matchOr } })
+                : null;
 
             if (existingProduct) {
               // Update existing product
@@ -222,20 +222,27 @@ class WeveSyncService {
 
       // Prepare order data
       const weveOrder = {
-        orderNumber: order.orderNumber || `ORD-${order.id}`,
+        orderNumber: order.orderNumber || `ORD-${order.orderNumber}`,
         customerId: order.customer?.legacyCustomerId,
         customerName: order.customer?.name,
         customerPhone: order.customer?.phoneNumber || undefined,
         customerAddress: order.customer?.address || undefined,
-        items: order.orderItems.map((item) => ({
-          productId: item.product.id,
-          productCode: item.product.productCode || undefined,
-          quantity: item.quantity,
-          unitPrice: parseFloat(item.unitPrice.toString()),
-          totalPrice: parseFloat(
-            (item.quantity * parseFloat(item.unitPrice.toString())).toFixed(2)
-          ),
-        })),
+        items: order.orderItems.map((item) => {
+          const unit = parseFloat(item.unitPrice.toString());
+          const qty = Math.max(0, Math.floor(Number(item.quantity)) || 0);
+          let free = Math.max(0, Math.floor(Number(item.freeQuantity ?? 0)) || 0);
+          if (free > qty) free = qty;
+          const paid = qty - free;
+          return {
+            productId: item.product.id,
+            productCode: item.product.productCode || undefined,
+            quantity: item.quantity,
+            paidQuantity: paid,
+            freeQuantity: free,
+            unitPrice: unit,
+            totalPrice: parseFloat((unit * paid).toFixed(2)),
+          };
+        }),
         subtotalAmount: order.subtotalAmount
           ? parseFloat(order.subtotalAmount.toString())
           : parseFloat(order.totalAmount?.toString() || "0"),
@@ -252,7 +259,7 @@ class WeveSyncService {
       // Push to Weve with user's authentication token
       logger.info(`Pushing order ${orderId} to Weve with user authentication`, {
         hasToken: !!authToken,
-        createdBy: (order as any).createdBy?.email || (order as any).createdBy?.name || "unknown",
+        createdBy: order.createdBy?.email || order.createdBy?.name || "unknown",
       });
       
       const result = await weveService.pushOrder(weveOrder, authToken);
@@ -353,14 +360,14 @@ class WeveSyncService {
 
     for (const weveProduct of result.data.products) {
       try {
-        const existingProduct = await prisma.product.findFirst({
-          where: {
-            OR: [
-              { productCode: weveProduct.productCode || undefined },
-              { barcode: weveProduct.barcode || undefined },
-            ],
-          },
-        });
+        const matchOr: Array<{ productCode: string } | { barcode: string }> = [];
+        if (weveProduct.productCode) matchOr.push({ productCode: weveProduct.productCode });
+        if (weveProduct.barcode) matchOr.push({ barcode: weveProduct.barcode });
+
+        const existingProduct =
+          matchOr.length > 0
+            ? await prisma.product.findFirst({ where: { OR: matchOr } })
+            : null;
 
         if (existingProduct) {
           await prisma.product.update({

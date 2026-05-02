@@ -45,6 +45,8 @@ interface PushOrderParams {
     productId: number;
     productCode?: string;
     quantity: number;
+    paidQuantity?: number;
+    freeQuantity?: number;
     unitPrice: number;
     totalPrice: number;
   }>;

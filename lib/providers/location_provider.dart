@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'dart:convert';
 import '../config/api_config.dart';
+import '../utils/warehouse_agent_shop_identity_one_file.dart';
 
 class LocationProvider extends ChangeNotifier {
   // ---- Tuning knobs (reduce noisy updates) ----
@@ -77,7 +78,7 @@ class LocationProvider extends ChangeNotifier {
   Future<void> _loadAgentId() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _currentAgentId = prefs.getInt('agent_id');
+      _currentAgentId = prefs.getInt(WarehouseAgentShopIdentity.prefsAgentIdKey);
       if (_currentAgentId != null) {
         print('✅ Agent ID ачаалагдлаа: $_currentAgentId');
       }
@@ -91,7 +92,7 @@ class LocationProvider extends ChangeNotifier {
     _currentAgentId = agentId;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('agent_id', agentId);
+      await prefs.setInt(WarehouseAgentShopIdentity.prefsAgentIdKey, agentId);
       print('✅ Agent ID хадгалагдлаа: $agentId');
     } catch (e) {
       print('Алдаа: Agent ID хадгалах: $e');

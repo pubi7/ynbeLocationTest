@@ -7,6 +7,7 @@ import 'package:table_calendar/table_calendar.dart';
 import '../../models/sales_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/sales_provider.dart';
+import '../../widgets/go_pop_scope.dart';
 import '../../widgets/hamburger_menu.dart';
 import '../../widgets/bottom_navigation.dart';
 
@@ -254,11 +255,13 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor:
-          const Color(0xFF0F0F23), // Dark background like the image
-      appBar: AppBar(
-        title: const Text('Гүйцэтгэл'),
+    return GoPopScope(
+      fallbackRoute: '/sales-dashboard',
+      child: Scaffold(
+        backgroundColor:
+            const Color(0xFF0F0F23), // Dark background like the image
+        appBar: AppBar(
+          title: const Text('Гүйцэтгэл'),
         backgroundColor: const Color(0xFF1A1A2E), // Dark purple header
         foregroundColor: Colors.white,
         elevation: 0,
@@ -833,6 +836,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
             ),
           );
         },
+      ),
       ),
     );
   }

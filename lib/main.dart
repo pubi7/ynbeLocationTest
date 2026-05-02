@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'dart:async';
 
 import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
@@ -16,12 +18,46 @@ import 'theme/app_themes.dart';
 import 'utils/app_router.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // Intl (month/day names) for mn_MN DateFormat usage
+  // Intl (month/day names) for mn_MN DateFormat usage — bindings шаарддаггүй.
   await initializeDateFormatting('mn_MN', null);
 
-  runApp(const MyApp());
+  runZonedGuarded(() {
+    // `runApp`-тай ижил zone-д эхлүүлэх ёстой (Zone mismatch алдаа гарна).
+    WidgetsFlutterBinding.ensureInitialized();
+
+    // Log framework errors (incl. assertions) with stack traces.
+    FlutterError.onError = (FlutterErrorDetails details) {
+      FlutterError.presentError(details);
+      if (kDebugMode) {
+        debugPrint('=== FLUTTER ERROR ===');
+        debugPrint(details.exceptionAsString());
+        if (details.stack != null) {
+          debugPrint(details.stack.toString());
+        }
+        debugPrint('=== END FLUTTER ERROR ===');
+      }
+    };
+
+    // Catch async errors not routed through FlutterError.
+    PlatformDispatcher.instance.onError = (error, stack) {
+      if (kDebugMode) {
+        debugPrint('=== PLATFORM DISPATCHER ERROR ===');
+        debugPrint(error.toString());
+        debugPrint(stack.toString());
+        debugPrint('=== END PLATFORM DISPATCHER ERROR ===');
+      }
+      return true;
+    };
+
+    runApp(const MyApp());
+  }, (error, stack) {
+    if (kDebugMode) {
+      debugPrint('=== ZONED ERROR ===');
+      debugPrint(error.toString());
+      debugPrint(stack.toString());
+      debugPrint('=== END ZONED ERROR ===');
+    }
+  });
 }
 
 class MyApp extends StatefulWidget {

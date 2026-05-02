@@ -12,11 +12,14 @@ import '../../services/sugalaanii_dugaar.dart';
 import '../../providers/order_provider.dart';
 import '../../utils/role_utils.dart';
 import '../../utils/order_schedule_utils.dart';
+import '../../utils/warehouse_order_backend_submit_one_file.dart';
 import '../../models/sales_model.dart';
 import '../../models/sales_item_model.dart';
 import '../../models/product_model.dart';
+import '../../utils/product_active_utils.dart';
+import '../../utils/promotion_pricing_utils.dart';
 import '../../widgets/hamburger_menu.dart';
-import '../../widgets/bottom_navigation.dart';
+import '../../widgets/go_pop_scope.dart';
 import '../../widgets/sales_entry/shop_picker_widget.dart';
 import '../../widgets/sales_entry/shop_info_widget.dart';
 import '../../widgets/sales_entry/cart_items_widget.dart';
@@ -33,12 +36,16 @@ class SalesEntryScreen extends StatefulWidget {
 class _SalesEntryScreenState extends State<SalesEntryScreen> {
   final _pageScrollController = ScrollController();
   final _productSearchSectionKey = GlobalKey();
+  final _cartSectionKey = GlobalKey();
   final _formKey = GlobalKey<FormState>();
   final _notesController = TextEditingController();
   final _productSearchController = TextEditingController();
+  final _addQtyController = TextEditingController(text: '1');
   late final TextEditingController _shopFieldController;
+  bool _shownProductCounts = false;
 
   String? _selectedShopName;
+  String? _selectedShopId; // Use stable ID when pushing orders
   _SalesEntryMode? _mode;
   bool _askedEntryMode = false;
 
@@ -58,6 +65,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   @override
   void initState() {
     super.initState();
+    _notesController.addListener(_onNotesChangedRefreshCartLocks);
     _shopFieldController = TextEditingController(text: _selectedShopName ?? '');
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
@@ -79,17 +87,58 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       await warehouseProvider.refreshShops(authProvider: authProvider);
       if (mounted) shopProvider.setShops(warehouseProvider.shops);
 
-      if (productProvider.products.isEmpty && mounted) {
-        debugPrint('[SalesEntry] Products empty, refreshing from warehouse...');
-        await warehouseProvider.refreshProducts();
+      // Always refresh products on entry so we can enforce the desired
+      // active/inactive view even if we previously cached the list.
+      try {
+        debugPrint('[SalesEntry] Refreshing products from warehouse...');
+        await warehouseProvider.refreshProducts(includeInactive: true);
         if (mounted) {
-          productProvider.setProducts(warehouseProvider.products);
+          final all = warehouseProvider.products;
+          final activeCount = all.where((p) => isProductActive(p)).length;
+          final inactiveCount = all.length - activeCount;
+
+          final activeOnly =
+              all.where((p) => isProductActive(p)).toList();
+          productProvider.setProducts(activeOnly);
           debugPrint(
-              '[SalesEntry] Loaded ${warehouseProvider.products.length} products');
+              '[SalesEntry] Loaded ${activeOnly.length} active products');
+
+          if (!_shownProductCounts) {
+            _shownProductCounts = true;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Бараа: Идэвхтэй $activeCount, Идэвхгүй $inactiveCount (нийт ${all.length})',
+                ),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
         }
-      } else {
-        debugPrint(
-            '[SalesEntry] Already have ${productProvider.products.length} products');
+      } catch (e) {
+        debugPrint('[SalesEntry] Product refresh failed, using cached list: $e');
+        if (!mounted) return;
+        final cached = productProvider.products;
+        final activeCount = cached.where((p) => isProductActive(p)).length;
+        final inactiveCount = cached.length - activeCount;
+        final activeOnly = cached.where((p) => isProductActive(p)).toList();
+        if (activeOnly.length != cached.length) {
+          productProvider.setProducts(activeOnly);
+          debugPrint(
+              '[SalesEntry] Filtered cached list to ${activeOnly.length} active products');
+        }
+
+        if (!_shownProductCounts) {
+          _shownProductCounts = true;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Бараа (cache): Идэвхтэй $activeCount, Идэвхгүй $inactiveCount (нийт ${cached.length})',
+              ),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
     });
   }
@@ -119,10 +168,12 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
 
   @override
   void dispose() {
+    _notesController.removeListener(_onNotesChangedRefreshCartLocks);
     _pageScrollController.dispose();
     _shopFieldController.dispose();
     _notesController.dispose();
     _productSearchController.dispose();
+    _addQtyController.dispose();
     super.dispose();
   }
 
@@ -132,7 +183,17 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     final shop = _selectedShopName != null
         ? shopProvider.getShopByName(_selectedShopName!)
         : null;
-    return product.getPriceForCustomerType(shop?.customerTypeId);
+    return product.getPiecePriceForCustomerType(shop?.customerTypeId);
+  }
+
+  /// Дэлгэцэнд: сонгосон нэгж (ширхэг / хайрцаг)-ийн үнэ.
+  double _getProductDisplayPriceForUnit(Product product, String orderedUnit) {
+    final shopProvider = Provider.of<ShopProvider>(context, listen: false);
+    final shop = _selectedShopName != null
+        ? shopProvider.getShopByName(_selectedShopName!)
+        : null;
+    return product.getUnitPriceForOrderedUnit(
+        shop?.customerTypeId, orderedUnit);
   }
 
   void _onShopSelected(String shopName) {
@@ -168,6 +229,9 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     setState(() {
       _selectedShopName = shopName;
       _shopFieldController.text = shopName;
+      // Persist selected shop ID to avoid ambiguous name matching during save.
+      final shopProvider = Provider.of<ShopProvider>(context, listen: false);
+      _selectedShopId = shopProvider.getShopByName(shopName)?.id;
 
       // Дэлгүүр солигдоход сагсан дахь бараануудын үнийг шинэ дэлгүүрийн
       // customerTypeId-д тааруулж дахин тооцоолно.
@@ -192,6 +256,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                 : it.promotionText,
           );
         }).toList();
+        _applyFinalPricingToCart();
       }
     });
     _checkShopCreditStatus(shopName);
@@ -213,39 +278,136 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   void _onShopCleared() {
     setState(() {
       _selectedShopName = null;
+      _selectedShopId = null;
       _shopFieldController.clear();
     });
   }
 
+  void _onNotesChangedRefreshCartLocks() {
+    if (_mode == _SalesEntryMode.orderOnly) return;
+    if (_selectedItems.isEmpty) return;
+    if (!mounted) return;
+    setState(_applyFinalPricingToCart);
+  }
+
+  /// Тэмдэглэлийн «N%» захиалгын илгээлтэд орох эсэх ([applyDiscountFromNotes])-тай тааруулна.
+  double _noteMultiplierForLockedCartPricing({
+    required bool applyDiscountFromNotes,
+  }) {
+    if (!applyDiscountFromNotes) return 1.0;
+    final p = WarehouseOrderBackendSubmitOneFile.parsePercentFromNotes(
+      _notesController.text.trim(),
+    );
+    if (p == null) return 1.0;
+    return (1.0 - p / 100.0).clamp(0.0, 1.0);
+  }
+
+  /// Сагсны мөр бүрт [SalesItem.finalUnitPrice] / [finalLineTotal] (UI-ийн эцсийн үнэ).
+  void _applyFinalPricingToCart() {
+    if (_selectedItems.isEmpty) return;
+    final useNotes = _mode != _SalesEntryMode.orderOnly;
+    final mult = _noteMultiplierForLockedCartPricing(
+      applyDiscountFromNotes: useNotes,
+    );
+    _selectedItems = PromotionPricingUtils.applyFinalPricingToCart(
+      List<SalesItem>.from(_selectedItems),
+      noteMultiplier: mult,
+    );
+  }
+
+  void _showShopRequiredSnack() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text(
+          'Эхлээд дэлгүүр сонгоно уу. Үнэ, хөнгөлөлт зөв тооцогдохын тулд шаардлагатай.',
+        ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.orange.shade800,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  /// Мөрийн «Нийт» баганын нийлбэр ([PromotionPricingUtils.payableLineTotalInCart]).
+  double get _cartLineSubtotal => _selectedItems.fold(
+        0.0,
+        (sum, item) =>
+            sum +
+            PromotionPricingUtils.payableLineTotalInCart(item, _selectedItems),
+      );
+
+  /// Сагсны 50+/100+ tier суурь: бүх мөрийн төлөх ширхэгийн нийлбэр.
+  int get _cartBulkTierPaidPiecesSum =>
+      PromotionPricingUtils.cartWideBillablePaidPiecesSum(_selectedItems);
+
+  /// Сагсны дэлгэц: tier идэвхтэй бол хувь (эсвэл null).
+  int? get _cartBulkUniformDiscountPercentForUi {
+    final p = PromotionPricingUtils.cartPaidPiecesBulkDiscountPercent(
+      _cartBulkTierPaidPiecesSum,
+    );
+    return p > 0 ? p : null;
+  }
+
+  /// Төлбөрт орох нийт (олон ширхэгийн хөнгөлөлтийг **нэгж** дээр, **мөрийн** тоогоор).
   double get _totalAmount {
-    return _selectedItems.fold(0.0, (sum, item) => sum + item.total);
+    if (_selectedItems.isNotEmpty &&
+        _selectedItems.every(
+          (e) =>
+              e.finalLineTotal != null &&
+              e.finalUnitPrice != null,
+        )) {
+      return _selectedItems.fold<double>(
+        0.0,
+        (s, e) => s + e.finalLineTotal!,
+      );
+    }
+    final tierBase = _cartBulkTierPaidPiecesSum;
+    return _selectedItems.fold(
+      0.0,
+      (s, item) =>
+          s +
+          PromotionPricingUtils.lineTotalFromDiscountedUnit(
+            unitPrice: item.price,
+            cartBulkMultiplier:
+                PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+              item: item,
+              eligiblePaidPiecesTotal: tierBase,
+            ),
+            paidPieces:
+                PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(
+              item,
+            ),
+          ),
+    );
   }
 
-  /// Note талбарт "10%" гэх мэт бичвэл order-level discount гэж үзээд хувиар буцаана.
-  /// Жишээ: "10%" => 10.0
-  double? _parsePercentFromNotes(String? notes) {
-    final s = (notes ?? '').trim();
-    if (s.isEmpty) return null;
-    final m = RegExp(r'(\d+(?:[.,]\d+)?)\s*%').firstMatch(s);
-    if (m == null) return null;
-    final raw = m.group(1)?.replaceAll(',', '.') ?? '';
-    final v = double.tryParse(raw);
-    if (v == null) return null;
-    if (v <= 0) return null;
-    return v.clamp(0, 100);
-  }
-
-  /// Баримт / eBarimt: НӨАТ орсон мөрүүдийн нийлбэр.
+  /// Баримт / eBarimt: НӨАТ орсон нийт (олон ширхэгийн хөнгөлөлтийг нэгж дээр тооцсон).
   double get _receiptGrossTotal {
-    return _selectedItems.fold(0.0, (s, i) => s + i.receiptLineGross);
+    final tierBase = _cartBulkTierPaidPiecesSum;
+    return _selectedItems.fold(
+      0.0,
+      (s, item) =>
+          s +
+          PromotionPricingUtils.lineTotalFromDiscountedUnit(
+            unitPrice: item.receiptUnitGross,
+            cartBulkMultiplier:
+                PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+              item: item,
+              eligiblePaidPiecesTotal: tierBase,
+            ),
+            paidPieces:
+                PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(
+              item,
+            ),
+          ),
+    );
   }
-
-  bool get _anyUnitPriceExcludesVat =>
-      _selectedItems.any((i) => i.unitPriceExcludesVat);
 
   void _addProductToCart() {
     // Дэлгүүр сонгогдоогүй бол бараа нэмэхгүй
     if (_selectedShopName == null) {
+      _showShopRequiredSnack();
       return;
     }
 
@@ -254,14 +416,87 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     }
 
     final p = _currentProduct!;
-    const quantity = 1;
-    final useOnePlusOne =
-        _hasPromotion(p) && (_productUsePromotion[p.id] == true);
-
-    int freePiecesForTotal(int total) {
-      if (!useOnePlusOne || total <= 0) return 0;
-      return total ~/ 2;
+    // Disallow adding inactive products to cart.
+    if (!isProductActive(p)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Идэвхгүй бараа тул нэмэх боломжгүй: ${p.name}'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
     }
+    final upb = (p.unitsPerBox ?? 1) <= 0 ? 1 : (p.unitsPerBox ?? 1);
+    final unit = _productUnitModes[p.id] == 'box' ? 'box' : 'piece';
+    final orderedQty = int.tryParse(_addQtyController.text.trim()) ??
+        _productQuantities[p.id] ??
+        1;
+    final clampedOrderedQty = orderedQty < 1 ? 1 : orderedQty;
+    _productQuantities[p.id] = clampedOrderedQty;
+    final paidPiecesInput =
+        unit == 'box' ? (clampedOrderedQty * upb) : clampedOrderedQty;
+    final mergedPromo =
+        PromotionPricingUtils.mergeCatalogPromotionText(p.name, p.promotionText);
+    final buyFree = PromotionPricingUtils.parseBuyFree(mergedPromo);
+    final applyPromo = _productUsePromotion[p.id] == true;
+    int billablePaidForDecide(int physicalPieces) {
+      if (!applyPromo || buyFree == null) return physicalPieces;
+      return PromotionPricingUtils.billablePaidPiecesForBuyFreePhysical(
+        physicalPieces: physicalPieces,
+        bf: buyFree,
+      );
+    }
+
+    // Local stock check (best-effort) so user sees immediate feedback.
+    final stock = p.stockQuantity;
+    if (stock != null) {
+      final existingIndexForStock =
+          _selectedItems.indexWhere((it) => it.productId == p.id);
+      // Нийт **физ** ширхэг; buy+free акцид `decide`-д төлөх тоог тусад нь хувиргана.
+      final mergedPhysical = existingIndexForStock >= 0
+          ? _selectedItems[existingIndexForStock].quantity + paidPiecesInput
+          : paidPiecesInput;
+      final mergedPaidForDecide = billablePaidForDecide(mergedPhysical);
+      final decisionForStock = PromotionPricingUtils.decide(
+        paidPieces: mergedPaidForDecide,
+        baseUnitPrice: _getProductPrice(p),
+        promotionText: mergedPromo,
+        baseDiscountPercent: p.discountPercent,
+        apply: applyPromo,
+        catalogProductName: p.name,
+      );
+      final requestedTotal = decisionForStock.totalPieces;
+      if (requestedTotal > stock) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Үлдэгдэл хүрэлцэхгүй: ${p.name} (үлдэгдэл $stock, шаардлагатай нийт ширхэг $requestedTotal)',
+              ),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    final paidForDecide = billablePaidForDecide(paidPiecesInput);
+    final decision = PromotionPricingUtils.decide(
+      paidPieces: paidForDecide,
+      baseUnitPrice: _getProductPrice(p),
+      promotionText: mergedPromo,
+      baseDiscountPercent: p.discountPercent,
+      apply: applyPromo,
+      catalogProductName: p.name,
+    );
+    final dp = applyPromo ? decision.appliedDiscountPercent : 0;
+    final effectiveUnitPrice = decision.unitPriceAfterDiscount;
+    final quantity = decision.totalPieces;
 
     // Ижил бараа байвал тоог нэмэх
     final existingIndex = _selectedItems.indexWhere(
@@ -271,165 +506,285 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     if (existingIndex >= 0) {
       // Ижил бараа байвал тоог нэмэх
       final existingItem = _selectedItems[existingIndex];
-      final newQty = existingItem.quantity + quantity;
-      final newFree = freePiecesForTotal(newQty).clamp(0, newQty);
+      final mergedPhysical = existingItem.quantity + paidPiecesInput;
+      final totalPaidForDecide = billablePaidForDecide(mergedPhysical);
+      final d2 = PromotionPricingUtils.decide(
+        paidPieces: totalPaidForDecide,
+        baseUnitPrice: _getProductPrice(p),
+        promotionText: mergedPromo,
+        baseDiscountPercent: p.discountPercent,
+        apply: applyPromo,
+        catalogProductName: p.name,
+      );
+      final newQty = d2.totalPieces;
+      final newFree = d2.freePieces.clamp(0, newQty);
+      final newOrderedQty = unit == 'box'
+          ? (mergedPhysical ~/ upb).clamp(1, 1 << 30)
+          : mergedPhysical;
       _selectedItems[existingIndex] = SalesItem(
         productId: existingItem.productId,
         productName: existingItem.productName,
-        price: existingItem.price,
+        price: d2.unitPriceAfterDiscount,
         quantity: newQty,
-        orderedUnit: existingItem.orderedUnit,
-        orderedQuantity: existingItem.orderedQuantity + quantity,
-        unitsPerBox: existingItem.unitsPerBox,
+        orderedUnit: unit,
+        orderedQuantity: newOrderedQty,
+        unitsPerBox: upb,
         freeQuantity: newFree,
         unitPriceExcludesVat: existingItem.unitPriceExcludesVat,
-        discountPercent: p.discountPercent ?? existingItem.discountPercent,
-        promotionText: (p.promotionText?.trim().isNotEmpty ?? false)
-            ? p.promotionText
-            : existingItem.promotionText,
+        discountPercent: d2.appliedDiscountPercent > 0
+            ? d2.appliedDiscountPercent
+            : null,
+        promotionText: applyPromo ? mergedPromo : null,
       );
     } else {
       // Шинэ бараа нэмэх
-      final newFree = freePiecesForTotal(quantity).clamp(0, quantity);
+      final newFree = decision.freePieces.clamp(0, quantity);
       _selectedItems.add(SalesItem(
         productId: p.id,
         productName: p.name,
-        price: _getProductPrice(p),
+        price: effectiveUnitPrice,
         quantity: quantity,
-        orderedUnit: 'piece',
-        orderedQuantity: quantity,
-        unitsPerBox: p.unitsPerBox ?? 1,
+        orderedUnit: unit,
+        orderedQuantity: clampedOrderedQty,
+        unitsPerBox: upb,
         freeQuantity: newFree,
         unitPriceExcludesVat: p.unitPriceExcludesVat,
-        discountPercent: p.discountPercent,
-        promotionText: p.promotionText,
+        discountPercent: dp > 0 ? dp : null,
+        promotionText: applyPromo ? mergedPromo : null,
       ));
     }
 
     setState(() {
+      _applyFinalPricingToCart();
       _currentProduct = null;
     });
   }
 
   void _removeProductFromCart(int index) {
     setState(() {
-      _selectedItems.removeAt(index);
+      if (index < 0 || index >= _selectedItems.length) return;
+      final next = List<SalesItem>.from(_selectedItems);
+      next.removeAt(index);
+      _selectedItems = next;
+      if (_selectedItems.isNotEmpty) {
+        _applyFinalPricingToCart();
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _cartSectionKey.currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        alignment: 0.2,
+      );
     });
   }
 
-  void _updateCartItemQuantity(int index, String unit, int newQuantity) {
+  void _replaceCartItem(int index, SalesItem updated) {
     setState(() {
-      final item = _selectedItems[index];
-      final upb = item.unitsPerBox <= 0 ? 1 : item.unitsPerBox;
-      final supportsBox = upb > 1;
-
-      int newPieces;
-      int orderedQty;
-      String orderedUnit;
-
-      if (supportsBox) {
-        final curBoxes = item.quantity ~/ upb;
-        final curExtra = item.quantity % upb;
-        final clampedBoxes = newQuantity < 0 ? 0 : newQuantity;
-        final clampedExtra = newQuantity < 0 ? 0 : newQuantity;
-
-        if (unit == 'box') {
-          orderedQty = clampedBoxes;
-          orderedUnit = 'box';
-          newPieces = (orderedQty * upb) + curExtra;
-        } else {
-          final extra = clampedExtra.clamp(0, upb - 1);
-          orderedQty = curBoxes;
-          orderedUnit = 'box';
-          newPieces = (orderedQty * upb) + extra;
-        }
-      } else {
-        orderedUnit = unit;
-        orderedQty = newQuantity < 0 ? 0 : newQuantity;
-        newPieces = orderedUnit == 'box' ? (orderedQty * upb) : orderedQty;
-      }
-
-      if (newPieces <= 0) {
-        // Do not allow zeroing out via edit; use delete instead.
-        return;
-      }
-      final newFree = item.freeQuantity.clamp(0, newPieces);
-      _selectedItems[index] = SalesItem(
-        productId: item.productId,
-        productName: item.productName,
-        price: item.price,
-        quantity: newPieces,
-        orderedUnit: orderedUnit,
-        orderedQuantity: orderedQty,
-        unitsPerBox: upb,
-        freeQuantity: newFree,
-        unitPriceExcludesVat: item.unitPriceExcludesVat,
-        discountPercent: item.discountPercent,
-        promotionText: item.promotionText,
+      if (index < 0 || index >= _selectedItems.length) return;
+      final next = List<SalesItem>.from(_selectedItems);
+      next[index] = updated;
+      _selectedItems = next;
+            _applyFinalPricingToCart();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _cartSectionKey.currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        alignment: 0.2,
       );
     });
   }
 
   /// Check if promotion text contains 1+1 pattern
   bool _hasPromotion(Product product) {
-    final promo = product.promotionText?.toLowerCase() ?? '';
-    return promo.contains('1+1') ||
-        promo.contains('1 + 1') ||
-        promo.contains('нэг нэмэх нэг');
+    return PromotionPricingUtils.parseBuyFree(product.promotionText) != null;
   }
 
-  /// Show dialog asking if user wants to use promotion (1+1)
-  Future<void> _askPromotionUsage(Product product) async {
-    if (!_hasPromotion(product)) return;
+  /// Каталогт урамшуулал/хямдралын дохио байвал «Урамшуулал ашиглах» анхнаасаа асаана
+  /// (зөвхөн 1+1 parse биш — хувийн %, текстэн bulk, бусад promotion талбар орно).
+  bool _catalogPromotionLikelyEnabled(Product p) {
+    if ((p.discountPercent ?? 0) > 0) return true;
+    if (_hasPromotion(p)) return true;
+    if (PromotionPricingUtils.parseBulkDiscount(p.promotionText) != null) {
+      return true;
+    }
+    if (PromotionPricingUtils.isLineOnlyPieceBulkTierProduct(p.name)) {
+      return true;
+    }
+    if ((p.promotionText ?? '').trim().isNotEmpty) return true;
+    return false;
+  }
 
-    final result = await showDialog<bool>(
+  /// Гол дэлгэц дээр бичихэд доор нь санал гаргахгүй; сонголтыг доод самбараас хийнэ.
+  Future<void> _openProductPicker() async {
+    if (_selectedShopName == null) {
+      _showShopRequiredSnack();
+      return;
+    }
+
+    final productProvider =
+        Provider.of<ProductProvider>(context, listen: false);
+    final baseList = productProvider.products
+        .where((p) => isProductActive(p))
+        .toList();
+    if (baseList.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Идэвхтэй бараа олдсонгүй.')),
+      );
+      return;
+    }
+
+    Product? picked;
+    picked = await showModalBottomSheet<Product?>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.local_offer, color: Color(0xFF8B5CF6)),
-            const SizedBox(width: 8),
-            const Text('Урамшуулал'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              product.name,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Урамшуулал: ${product.promotionText}',
-              style: const TextStyle(fontSize: 14, color: Color(0xFF8B5CF6)),
-            ),
-            const SizedBox(height: 12),
-            const Text('Энэ урамшууллыг ашиглах уу?'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Үгүй'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF8B5CF6),
-            ),
-            child: const Text('Тийм'),
-          ),
-        ],
-      ),
+      isScrollControlled: true,
+      builder: (sheetCtx) {
+        final allItems = List<Product>.from(baseList)
+          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+        final filterController = TextEditingController();
+
+        return StatefulBuilder(
+          builder: (sheetCtx, setModal) {
+            final q = filterController.text.trim().toLowerCase();
+            final items = q.isEmpty
+                ? allItems
+                : allItems.where((p) {
+                    return p.name.toLowerCase().contains(q) ||
+                        (p.barcode ?? '').toLowerCase().contains(q) ||
+                        (p.productCode ?? '').toLowerCase().contains(q);
+                  }).toList();
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(sheetCtx).bottom,
+                  left: 16,
+                  right: 16,
+                  top: 12,
+                ),
+                child: SizedBox(
+                  height: MediaQuery.sizeOf(sheetCtx).height * 0.78,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'Бараа сонгох',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            tooltip: 'Хайх',
+                            onPressed: () {
+                              // Toggle: focus search input
+                              Future<void>.delayed(
+                                const Duration(milliseconds: 10),
+                                () => FocusScope.of(sheetCtx).requestFocus(),
+                              );
+                            },
+                            icon: const Icon(Icons.search),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.of(sheetCtx).pop(),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      TextField(
+                        controller: filterController,
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          labelText: 'Хайлт',
+                          hintText: 'Нэр, баркод, код…',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: filterController.text.trim().isEmpty
+                              ? null
+                              : IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    filterController.clear();
+                                    setModal(() {});
+                                  },
+                                ),
+                          border: const OutlineInputBorder(),
+                        ),
+                        onChanged: (_) => setModal(() {}),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: items.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'Илэрц олдсонгүй',
+                                  style: TextStyle(color: Colors.grey[600]),
+                                ),
+                              )
+                            : ListView.separated(
+                                itemCount: items.length,
+                                separatorBuilder: (_, __) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (c, i) {
+                                  final p = items[i];
+                                  final stock = p.stockQuantity;
+                                  final stockLabel = stock != null
+                                      ? 'Үлдэгдэл: $stock'
+                                      : 'Үлдэгдэл: —';
+                                  final stockStyle = TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: stock == null
+                                        ? Colors.grey[600]
+                                        : stock == 0
+                                            ? Colors.red[700]
+                                            : Colors.teal[800],
+                                  );
+                                  return ListTile(
+                                    title: Text(p.name),
+                                    subtitle: Text(stockLabel, style: stockStyle),
+                                    onTap: () => Navigator.of(sheetCtx).pop(p),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
 
-    if (result != null) {
-      setState(() {
-        _productUsePromotion[product.id] = result;
-      });
-    }
+    if (!mounted || picked == null) return;
+
+    final p = picked;
+    setState(() {
+      _currentProduct = p;
+      // Keep internal value in sync even though search UI is hidden.
+      _productSearchController.text = p.name;
+      _productQuantities[p.id] = 1;
+      _productUnitModes[p.id] = 'piece';
+      // 1+1 / урамшуулалтай бараанд анхнаасаа асаана (хэрэглэгч асаахгүй гээд мартахгүй).
+      _productUsePromotion[p.id] =
+          _productUsePromotion[p.id] ?? _catalogPromotionLikelyEnabled(p);
+      _addQtyController.text = '1';
+    });
   }
 
   void _checkShopCreditStatus(String shopName) {
@@ -493,13 +848,34 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   }
 
   void _showPaymentMethodDialog() {
-    if (_selectedShopName == null) return;
+    if (_selectedShopName == null) {
+      _showShopRequiredSnack();
+      return;
+    }
     final shopProvider = Provider.of<ShopProvider>(context, listen: false);
     final shop = shopProvider.getShopByName(_selectedShopName!);
 
     PaymentMethodDialog.show(
       context,
       onPaymentSelected: _processPurchase,
+      shopName: shop?.name ?? _selectedShopName,
+      totalAmount: _totalAmount,
+      maxPurchaseAmount: shop?.maxPurchaseAmount,
+    );
+  }
+
+  /// Захиалга (order-only) хадгалах — төлбөрийн төрөл сонгоод backend руу илгээнэ.
+  void _showPaymentMethodDialogForOrderOnly() {
+    if (_selectedShopName == null) {
+      _showShopRequiredSnack();
+      return;
+    }
+    final shopProvider = Provider.of<ShopProvider>(context, listen: false);
+    final shop = shopProvider.getShopByName(_selectedShopName!);
+
+    PaymentMethodDialog.show(
+      context,
+      onPaymentSelected: _createOrderOnlyAndPush,
       shopName: shop?.name ?? _selectedShopName,
       totalAmount: _totalAmount,
       maxPurchaseAmount: shop?.maxPurchaseAmount,
@@ -521,25 +897,11 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         final pushed = await _submitSaleWithPaymentMethod(paymentMethod);
         if (pushed == null) return;
         if (!mounted) return;
-        final scheduled = OrderScheduleUtils.computeDeliveryDateForWeb(role);
-        final today = OrderScheduleUtils.yyyyMmDd(
-          OrderScheduleUtils.dateOnly(DateTime.now(), useUtc: false),
-        );
-        String scheduledSuffix() {
-          if (scheduled == null) return '';
-          final t = OrderScheduleUtils.dateOnly(DateTime.now(), useUtc: false);
-          final s = DateTime.tryParse(scheduled);
-          if (s == null) return '';
-          final sd = OrderScheduleUtils.dateOnly(s, useUtc: false);
-          final diff = sd.difference(t).inDays;
-          if (diff == 0) return '';
-          final sign = diff > 0 ? '+' : '';
-          return ' ($sign$diff)';
-        }
+        final today = OrderScheduleUtils.localCalendarDayYyyyMmDd();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '✅ Захиалга үүсгэлээ (ID: ${pushed.orderId}).\nӨнөөдөр: $today\nХүргэлтийн өдөр${scheduledSuffix()}: ${scheduled ?? '-'}',
+              '✅ Захиалга үүсгэлээ (ID: ${pushed.orderId}).\nЗахиалгын өдөр: $today',
             ),
             backgroundColor: const Color(0xFF10B981),
             duration: const Duration(seconds: 4),
@@ -555,9 +917,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
           _notesController.clear();
           _productSearchController.clear();
         });
-        if (mounted) {
-          context.go('/sales-dashboard');
-        }
+        // Stay on this screen after save; user continues working.
         return;
       }
 
@@ -626,11 +986,25 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     }
   }
 
-  Future<void> _createOrderOnlyAndPush() async {
+  Future<void> _createOrderOnlyAndPush(String paymentMethod) async {
     if (_isLoading) return;
-    if (!_formKey.currentState!.validate()) return;
-    if (_selectedShopName == null) return;
-    if (_selectedItems.isEmpty) return;
+    final formState = _formKey.currentState;
+    if (formState == null || !formState.validate()) return;
+    if (_selectedShopName == null) {
+      _showShopRequiredSnack();
+      return;
+    }
+    if (_selectedItems.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Сагс хоосон байна. Эхлээд бараа нэмнэ үү.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -643,9 +1017,9 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
           await locationProvider.refreshLocationForOrderRecording();
 
       // Захиалга үүсгэх (баримт/хэвлэлгүй) — web site руу шууд илгээнэ.
-      // Payment method-ийг backend талд ялгах зорилгоор "Sales" гэж тэмдэглэнэ.
+      // Payment method: user-selected (mapped to backend enum in _pushOrderToWeve).
       final pushed =
-          await _pushOrderToWeve('Sales', applyDiscountFromNotes: false);
+          await _pushOrderToWeve(paymentMethod, applyDiscountFromNotes: false);
       if (pushed == null) return;
 
       final loc = capturedLoc ?? locationProvider.currentLocation;
@@ -658,26 +1032,11 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       }
 
       if (!mounted) return;
-      final role = Provider.of<AuthProvider>(context, listen: false).userRole;
-      final scheduled = OrderScheduleUtils.computeDeliveryDateForWeb(role);
-      final today = OrderScheduleUtils.yyyyMmDd(
-        OrderScheduleUtils.dateOnly(DateTime.now(), useUtc: false),
-      );
-      String scheduledSuffix() {
-        if (scheduled == null) return '';
-        final t = OrderScheduleUtils.dateOnly(DateTime.now(), useUtc: false);
-        final s = DateTime.tryParse(scheduled);
-        if (s == null) return '';
-        final sd = OrderScheduleUtils.dateOnly(s, useUtc: false);
-        final diff = sd.difference(t).inDays;
-        if (diff == 0) return '';
-        final sign = diff > 0 ? '+' : '';
-        return ' ($sign$diff)';
-      }
+      final today = OrderScheduleUtils.localCalendarDayYyyyMmDd();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '✅ Захиалга үүсгэлээ (ID: ${pushed.orderId}).\nӨнөөдөр: $today\nХүргэлтийн өдөр${scheduledSuffix()}: ${scheduled ?? '-'}',
+            '✅ Захиалга үүсгэлээ (ID: ${pushed.orderId}).\nЗахиалгын өдөр: $today',
           ),
           backgroundColor: const Color(0xFF10B981),
           duration: const Duration(seconds: 4),
@@ -693,9 +1052,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         _currentProduct = null;
         _notesController.clear();
       });
-      if (mounted) {
-        context.go('/sales-dashboard');
-      }
+      // Stay on this screen after save; user continues working.
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -717,13 +1074,23 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   /// Захиалга үүсгэсний дараах диалогт дамжуулах мэдээлэл
   Future<({int orderId, String? serverLotteryNumber})?>
       _submitSaleWithPaymentMethod(String paymentMethod) async {
-    if (!_formKey.currentState!.validate()) return null;
+    final formState = _formKey.currentState;
+    if (formState == null || !formState.validate()) return null;
 
     if (_selectedShopName == null) {
+      if (mounted) _showShopRequiredSnack();
       return null;
     }
 
     if (_selectedItems.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Сагс хоосон байна. Эхлээд бараа нэмнэ үү.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       return null;
     }
 
@@ -768,15 +1135,30 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       );
     }
 
-    // Амжилттай: бараа бүрийг тусдаа Sales record болгон нэмнэ
+    // Амжилттай: бараа бүрийг тусдаа Sales record болгон нэмнэ (сагсны bulk tier: бүх мөрийн төлөх нийлбэр).
+    final tierBase =
+        PromotionPricingUtils.cartWideBillablePaidPiecesSum(_selectedItems);
     for (var item in _selectedItems) {
+      final bulkMult =
+          PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+        item: item,
+        eligiblePaidPiecesTotal: tierBase,
+      );
       final sale = Sales(
         id: '${DateTime.now().millisecondsSinceEpoch}_${item.productId}',
         productName: item.productName,
         location: _selectedShopName!,
         salespersonId: authProvider.user?.id ?? '',
         salespersonName: authProvider.user?.name ?? '',
-        amount: item.total,
+        amount: item.finalLineTotal ??
+            PromotionPricingUtils.lineTotalFromDiscountedUnit(
+              unitPrice: item.price,
+              cartBulkMultiplier: bulkMult,
+              paidPieces:
+                  PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(
+                item,
+              ),
+            ),
         saleDate: DateTime.now(),
         notes: _notesController.text.trim().isEmpty
             ? null
@@ -806,7 +1188,14 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     final productProvider =
         Provider.of<ProductProvider>(context, listen: false);
 
+    final tierBase =
+        PromotionPricingUtils.cartWideBillablePaidPiecesSum(_selectedItems);
     final items = _selectedItems.map((item) {
+      final mult =
+          PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+        item: item,
+        eligiblePaidPiecesTotal: tierBase,
+      );
       final product = productProvider.getProductById(item.productId);
       final barcode = product?.barcode ?? product?.productCode ?? '';
       // qtyType: ширхгээр эсвэл кг-аар - одоогоор бүгдийг ширхэг
@@ -816,10 +1205,18 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       return {
         'barcode': barcode.isNotEmpty ? barcode : item.productId,
         'name': item.productName,
-        'unitPrice': item.receiptUnitGross,
-        'qty': item.paidQuantity,
+        'unitPrice': PromotionPricingUtils.discountedUnitPrice(
+          unitPrice: item.receiptUnitGross,
+          cartBulkMultiplier: mult,
+        ),
+        'qty': PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(item),
         'qtyType': qtyType,
-        'totalAmount': item.receiptLineGross,
+        'totalAmount': PromotionPricingUtils.lineTotalFromDiscountedUnit(
+          unitPrice: item.receiptUnitGross,
+          cartBulkMultiplier: mult,
+          paidPieces:
+              PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(item),
+        ),
       };
     }).toList();
 
@@ -884,70 +1281,107 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         return null;
       }
 
-      // Find selected shop to get its ID
-      final selectedShop = shopProvider.shops.firstWhere(
-        (shop) => shop.name == _selectedShopName,
-        orElse: () => shopProvider.shops.first,
-      );
+      // Prefer stable selected shop ID (names can be duplicated / lists can refresh)
+      final selectedId = _selectedShopId ??
+          shopProvider.getShopByName(_selectedShopName ?? '')?.id;
+      final fallbackShop = shopProvider.shops.isNotEmpty
+          ? shopProvider.shops.firstWhere(
+              (shop) => shop.name == _selectedShopName,
+              orElse: () => shopProvider.shops.first,
+            )
+          : null;
+      final rawCustomerId = selectedId ?? fallbackShop?.id;
 
       // Parse customerId (backend expects int)
-      final customerId = int.tryParse(selectedShop.id);
+      final customerId =
+          rawCustomerId == null ? null : int.tryParse(rawCustomerId);
       if (customerId == null) {
-        debugPrint('⚠️  Дэлгүүрийн ID буруу байна: ${selectedShop.id}');
+        debugPrint('⚠️  Дэлгүүрийн ID буруу байна: $rawCustomerId');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Дэлгүүрийн мэдээлэл буруу байна. Дэлгүүрээ дахин сонгоод дахин оролдоно уу.',
+              ),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
         return null;
       }
 
-      // Prepare order items with unitPrice for backend
-      final notes = _notesController.text.trim();
-      final notePercent =
-          applyDiscountFromNotes ? _parsePercentFromNotes(notes) : null;
-      final noteMultiplier =
-          (notePercent != null) ? (1 - (notePercent / 100.0)) : 1.0;
-      final items = _selectedItems.map((item) {
-        final productId = int.tryParse(item.productId);
-        if (productId == null) {
-          throw Exception('Барааны ID буруу байна: ${item.productId}');
-        }
-        return {
-          'productId': productId,
-          'quantity': item.quantity,
-          // Зөвхөн "шууд хэвлэх" үед note дээрх % хөнгөлөлтийг unitPrice-д шингээнэ.
-          'unitPrice': (item.price * noteMultiplier),
-        };
-      }).toList();
-
-      // Map payment method to backend format
-      final backendPaymentMethod = _mapPaymentMethod(paymentMethod);
-
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      debugPrint('📤 Warehouse backend руу захиалга илгээж байна...');
-      debugPrint('   • Нэвтэрсэн хэрэглэгч ID: ${authProvider.user?.id}');
-      debugPrint('   • Нэвтэрсэн хэрэглэгч: ${authProvider.user?.name}');
-      debugPrint('   • Дэлгүүр ID: $customerId');
-      debugPrint('   • Барааны тоо: ${items.length}');
-      debugPrint('   • Төлбөрийн төрөл: $backendPaymentMethod');
-
-      // Сүүлчийн үлдэгдлийг татаж аваад (race condition-оос хамгаална) хүрэлцэхгүй бол илгээхгүй.
-      try {
-        await warehouseProvider.refreshProducts();
+      // Хадгалахын өмнө серверээс хамгийн сүүлийн үлдэгдэл/барааны жагсаалт татаж шалгана.
+      await warehouseProvider.refreshProducts();
+      if (!mounted) return null;
+      final refreshErr = warehouseProvider.error;
+      if (refreshErr != null && refreshErr.trim().isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Үлдэгдэл шалгахын тулд бараа татахад алдаа: $refreshErr',
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+        return null;
+      }
+      if (!warehouseProvider.connected) {
         if (mounted) {
-          final productProvider =
-              Provider.of<ProductProvider>(context, listen: false);
-          productProvider.setProducts(warehouseProvider.products);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Сервертэй холбогдоогүй байна. Дахин нэвтэрнэ үү.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 5),
+            ),
+          );
         }
-      } catch (_) {}
+        return null;
+      }
 
       final productProvider =
           Provider.of<ProductProvider>(context, listen: false);
+      productProvider.setProducts(warehouseProvider.products);
+
       for (final cart in _selectedItems) {
         final p = productProvider.getProductById(cart.productId);
-        final stock = p?.stockQuantity ?? 0;
-        if (stock > 0 && cart.quantity > stock) {
+        if (p == null) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  'Үлдэгдэл хүрэлцэхгүй: ${cart.productName} (үлдэгдэл $stock, хүссэн ${cart.quantity})',
+                  'Бараа олдсонгүй (серверийн жагсаалт): ${cart.productName}. Сагсаас хасаад дахин нэмнэ үү.',
+                ),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+          return null;
+        }
+        // If a product is inactive, block order submit with clear message.
+        if (!isProductActive(p)) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Идэвхгүй бараа тул захиалга үүсгэх боломжгүй: ${cart.productName}',
+                ),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+          return null;
+        }
+        final stock = p.stockQuantity;
+        if (stock != null && cart.quantity > stock) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Үлдэгдэл хүрэлцэхгүй: ${cart.productName} (сервер: $stock ш, сагс: ${cart.quantity} ш нийт)',
                 ),
                 backgroundColor: Colors.orange,
                 duration: const Duration(seconds: 5),
@@ -958,49 +1392,60 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         }
       }
 
+      final notes = _notesController.text.trim();
+      final noteMult = _noteMultiplierForLockedCartPricing(
+        applyDiscountFromNotes: applyDiscountFromNotes,
+      );
+      final pricedCart = PromotionPricingUtils.applyFinalPricingToCart(
+        List<SalesItem>.from(_selectedItems),
+        noteMultiplier: noteMult,
+      );
+      final items = WarehouseOrderBackendSubmitOneFile.buildItemsFromSalesCart(
+        pricedCart,
+        applyDiscountFromNotes: applyDiscountFromNotes,
+        notesTrimmed: notes,
+      );
+      WarehouseOrderBackendSubmitOneFile.debugLogBackendOrderItems(
+        items,
+        productNames: pricedCart.map((e) => e.productName).toList(),
+      );
+
+      final backendPaymentMethod =
+          WarehouseOrderBackendSubmitOneFile.mapMobilePaymentMethodToBackend(
+        paymentMethod,
+      );
+
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      debugPrint('📤 Warehouse backend руу захиалга илгээж байна...');
+      debugPrint('   • Нэвтэрсэн хэрэглэгч ID: ${authProvider.user?.id}');
+      debugPrint('   • Нэвтэрсэн хэрэглэгч: ${authProvider.user?.name}');
+      debugPrint('   • Дэлгүүр ID: $customerId');
+      debugPrint('   • Барааны тоо: ${items.length}');
+      debugPrint('   • Төлбөрийн төрөл: $backendPaymentMethod');
+
       // Create order via warehouse backend API
-      // Backend uses JWT token's userId as agentId (= mobile logged-in user's ID)
-      final computedDeliveryDate =
-          OrderScheduleUtils.computeDeliveryDateForWeb(authProvider.userRole);
-      debugPrint(
-          '🧩 createOrder role="${authProvider.userRole}" -> deliveryDate=$computedDeliveryDate');
-      int? _retryAfterSeconds(DioException e) {
-        final h = e.response?.headers;
-        if (h == null) return null;
-        final v = h.value('retry-after');
-        if (v == null) return null;
-        return int.tryParse(v.trim());
+      // Backend uses JWT token's userId as agentId (= mobile logged-in user's ID).
+      // Mobile: do not send deliveryDate — backend keeps the real order day only
+      // (no role-based +1/+2 stored as a separate delivery day).
+      final result =
+          await WarehouseOrderBackendSubmitOneFile.createOrderWith429Retry(
+        () => warehouseProvider.createOrder(
+          customerId: customerId,
+          items: items,
+          orderType: 'Store',
+          paymentMethod: backendPaymentMethod,
+          notes: notes.isEmpty ? null : notes,
+          deliveryDate: null,
+          allowInsufficientStock: false,
+        ),
+      );
+
+      // Илгээсэн мөрүүдтэй сагсыг тааруулна (дашбоардын орон нутгийн борлуулалт г.м.).
+      if (mounted) {
+        setState(() {
+          _selectedItems = pricedCart;
+        });
       }
-
-      Future<Map<String, dynamic>> _createOrderWith429Retry() async {
-        const maxAttempts = 3;
-        for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-          try {
-            return await warehouseProvider.createOrder(
-              customerId: customerId,
-              items: items,
-              orderType: 'Store',
-              paymentMethod: backendPaymentMethod,
-              notes: notes.isEmpty ? null : notes,
-              deliveryDate: computedDeliveryDate,
-              allowInsufficientStock: false, // Үлдэгдэл хүрэлцэхгүй бол буцаана
-            );
-          } on DioException catch (e) {
-            final status = e.response?.statusCode;
-            if (status != 429 || attempt == maxAttempts) rethrow;
-
-            final ra = _retryAfterSeconds(e);
-            final backoff = ra ?? (attempt * 2); // 2s, 4s
-            debugPrint(
-                '⏳ 429 Too Many Requests. Retrying in ${backoff}s (attempt $attempt/$maxAttempts)');
-            await Future.delayed(Duration(seconds: backoff));
-          }
-        }
-        // Should not reach here
-        throw Exception('Create order retry loop failed unexpectedly');
-      }
-
-      final result = await _createOrderWith429Retry();
 
       debugPrint('✅ Захиалга амжилттай илгээгдлээ!');
       final orderId = (result['order']?['id'] as num?)?.toInt();
@@ -1053,30 +1498,25 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       return (orderId: orderId, serverLotteryNumber: serverLottery);
     } catch (e) {
       debugPrint('❌ Захиалга backend-д илгээхэд алдаа: $e');
-      rethrow;
-    }
-  }
-
-  /// Map mobile app payment method to backend format
-  String _mapPaymentMethod(String mobileMethod) {
-    switch (mobileMethod.toLowerCase()) {
-      case 'cash':
-      case 'бэлэн':
-        return 'Cash';
-      case 'credit':
-      case 'зээл':
-        return 'Credit';
-      case 'bank':
-      case 'банк':
-        return 'BankTransfer';
-      case 'sales':
-      case 'борлуулалт':
-        return 'Sales';
-      case 'padan':
-      case 'падан':
-        return 'Padan';
-      default:
-        return 'Cash';
+      if (mounted) {
+        String msg = e.toString();
+        if (e is DioException) {
+          final data = e.response?.data;
+          if (data is Map && data['message'] != null) {
+            msg = data['message'].toString();
+          } else if (e.message != null && e.message!.trim().isNotEmpty) {
+            msg = e.message!.trim();
+          }
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+      return null;
     }
   }
 
@@ -1092,158 +1532,60 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted || _mode != null) return;
         if (isAgentRole(authRole)) {
-          setState(() => _mode = _SalesEntryMode.orderOnly);
+          setState(() {
+            _mode = _SalesEntryMode.orderOnly;
+            _applyFinalPricingToCart();
+          });
           return;
         }
         if (isManagerRole(authRole)) {
-          setState(() => _mode = _SalesEntryMode.orderOnly);
+          setState(() {
+            _mode = _SalesEntryMode.orderOnly;
+            _applyFinalPricingToCart();
+          });
           return;
         }
         final picked = await _askEntryMode();
         if (!mounted) return;
         setState(() {
           _mode = picked ?? _SalesEntryMode.delivery;
+          _applyFinalPricingToCart();
         });
       });
     }
 
-    final scheme = Theme.of(context).colorScheme;
-    return Scaffold(
-      backgroundColor: scheme.surface,
-      appBar: AppBar(
-        title: Text(
-          switch (_mode) {
-            _SalesEntryMode.orderOnly => 'Хүргэлт (захиалга) үүсгэх',
-            _SalesEntryMode.delivery => 'Газар дээр (хэвлэх)',
-            _ => 'Sales',
-          },
-        ),
-        backgroundColor: scheme.primary,
-        foregroundColor: scheme.onPrimary,
-        elevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded),
-            onPressed: () => Scaffold.of(context).openDrawer(),
+    return GoPopScope(
+      fallbackRoute: GoPopScope.homeRouteFor(context),
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        appBar: AppBar(
+          title: const Text('Борлуулагч'),
+          backgroundColor: Colors.blue,
+          foregroundColor: Colors.white,
+          elevation: 1,
+          leading: Builder(
+            builder: (context) => IconButton(
+              icon: const Icon(Icons.menu_rounded),
+              onPressed: () => Scaffold.of(context).openDrawer(),
+            ),
           ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.arrow_back_rounded),
+              onPressed: () => context.go(GoPopScope.homeRouteFor(context)),
+            ),
+          ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => context.go('/sales-dashboard'),
-          ),
-        ],
-      ),
-      drawer: const HamburgerMenu(),
-      bottomNavigationBar: const BottomNavigationWidget(),
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            controller: _pageScrollController,
-            padding:
-                EdgeInsets.only(bottom: _selectedItems.isNotEmpty ? 100 : 0),
-            child: Column(
-              children: [
-                // Header Section - Refined gradient with depth
-                Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        const Color(0xFF0D9488),
-                        const Color(0xFF0F766E),
-                        const Color(0xFF115E59),
-                      ],
-                      stops: const [0.0, 0.5, 1.0],
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF0D9488).withValues(alpha: 0.3),
-                        blurRadius: 16,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: SafeArea(
-                    bottom: false,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
-                      child: Column(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(18),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.25),
-                                width: 1.5,
-                              ),
-                            ),
-                            child: const Icon(
-                              Icons.receipt_long_rounded,
-                              size: 44,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          const Text(
-                            'Захиалга үүсгэх',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 26,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.5,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Дэлгүүр сонгоод бараа нэмнэ үү',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.92),
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Form Section
-                Container(
-                  margin: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: const Color(0xFF0D9488).withValues(alpha: 0.12),
-                      width: 1,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF0D9488).withValues(alpha: 0.08),
-                        blurRadius: 24,
-                        offset: const Offset(0, 8),
-                      ),
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.06),
-                        blurRadius: 16,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
+        drawer: const HamburgerMenu(),
+        bottomNavigationBar: null,
+        body: SingleChildScrollView(
+        controller: _pageScrollController,
+        padding: const EdgeInsets.all(12),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
                           // Дэлгүүр сонгох
                           Consumer2<ShopProvider, WarehouseProvider>(
                             builder: (context, shopProvider, warehouseProvider,
@@ -1279,252 +1621,74 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                             selectedShopName: _selectedShopName,
                             totalAmount: _totalAmount,
                           ),
-                          const SizedBox(height: 20),
-
-                          // Бараа нэмэх хэсэг
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  const Color(0xFFF0FDFA),
-                                  const Color(0xFFF8FAFC),
+                          const SizedBox(height: 12),
+                          if (_selectedShopName == null) ...[
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.amber.shade400,
+                                  width: 1.2,
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.store_mall_directory_outlined,
+                                    color: Colors.amber.shade900,
+                                    size: 22,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Дэлгүүр сонгоогүй байна. Дээрээс дэлгүүрээ сонгоно уу — үнэ, хөнгөлөлт зөв тооцогдоно.',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.amber.shade900,
+                                        height: 1.35,
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: const Color(0xFF0D9488)
-                                    .withValues(alpha: 0.2),
-                                width: 1.5,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF0D9488)
-                                      .withValues(alpha: 0.06),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF0D9488)
-                                            .withValues(alpha: 0.12),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: const Icon(
-                                        Icons.add_shopping_cart_rounded,
-                                        size: 20,
-                                        color: Color(0xFF0D9488),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Wrap(
-                                        spacing: 8,
-                                        runSpacing: 6,
-                                        crossAxisAlignment:
-                                            WrapCrossAlignment.center,
-                                        children: [
-                                          Text(
-                                            'Бараа нэмэх',
-                                            style: TextStyle(
-                                              fontSize: 17,
-                                              fontWeight: FontWeight.w700,
-                                              color: const Color(0xFF1F2937),
-                                              letterSpacing: -0.3,
-                                            ),
-                                          ),
-                                          if (_selectedShopName == null)
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 4,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.amber
-                                                    .withValues(alpha: 0.15),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                              ),
-                                              child: Text(
-                                                'Дэлгүүр сонгоно уу',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  color: Colors.amber.shade800,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
+                            const SizedBox(height: 10),
+                          ],
+                          const Text(
+                            'Бараа нэмэх',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
                                 // Бараа хайх + Бараа сонгох
                                 Container(
                                   key: _productSearchSectionKey,
                                   child: Consumer<ProductProvider>(
                                   builder: (context, productProvider, child) {
-                                    // Үнэтэй бараанууд л харуулна; хайлтаар шүүнэ
-                                    final searchText = _productSearchController
-                                        .text
-                                        .toLowerCase();
-                                    final filteredProducts = (searchText.isEmpty
-                                            ? const <Product>[]
-                                            : productProvider.products.where(
-                                                (p) {
-                                                  final name =
-                                                      p.name.trim().toLowerCase();
-                                                  if (name.isEmpty) {
-                                                    // Requirement: only show products with a written name.
-                                                    return false;
-                                                  }
-                                                  return name.contains(searchText) ||
-                                                      (p.barcode ?? '')
-                                                          .toLowerCase()
-                                                          .contains(searchText) ||
-                                                      (p.productCode ?? '')
-                                                          .toLowerCase()
-                                                          .contains(searchText);
-                                                },
-                                              ))
-                                        // Дэлгүүр сонгоогүй үед ч жагсаалтаар харуулах хэрэгтэй.
-                                        // Үнэ нь зөвхөн дэлгүүрээс хамаарч 0 байж болох тул энэ үед шүүхгүй.
-                                        .where((p) => _selectedShopName == null
-                                            ? true
-                                            : _getProductPrice(p) > 0)
-                                        .toList();
-
-                                    // Search bar
-                                    final searchBar = Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(14),
-                                        border: Border.all(
-                                          color: const Color(0xFF0D9488)
-                                              .withValues(alpha: 0.25),
-                                          width: 1.5,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: const Color(0xFF0D9488)
-                                                .withValues(alpha: 0.06),
-                                            blurRadius: 8,
-                                            offset: const Offset(0, 2),
-                                          ),
-                                        ],
-                                      ),
-                                      child: TextField(
-                                        controller: _productSearchController,
-                                        enabled:
-                                            productProvider.products.isNotEmpty,
-                                        onTap: () {
-                                          setState(() {});
-                                        },
-                                        decoration: InputDecoration(
-                                          labelText: 'Бараа хайх',
-                                          hintText: _selectedShopName == null
-                                              ? 'Дэлгүүр сонговол үнэ/хөнгөлөлт зөв болно'
-                                              : (productProvider
-                                                      .products.isEmpty
-                                                  ? 'Бараа алга'
-                                                  : 'Барааны нэр / баркод / SKU'),
-                                          labelStyle: const TextStyle(
-                                            color: Color(0xFF0F172A),
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                          hintStyle: TextStyle(
-                                            color: Colors.grey[600],
-                                          ),
-                                          prefixIcon: const Icon(
-                                            Icons.search_rounded,
-                                            size: 22,
-                                            color: Color(0xFF0D9488),
-                                          ),
-                                          suffixIcon: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              if (_productSearchController
-                                                  .text.isNotEmpty)
-                                                IconButton(
-                                                  icon: const Icon(Icons.clear,
-                                                      size: 20),
-                                                  onPressed: () {
-                                                    setState(() {
-                                                      _productSearchController
-                                                          .clear();
-                                                    });
-                                                  },
-                                                ),
-                                              IconButton(
-                                                icon: const Icon(
-                                                    Icons.qr_code_scanner,
-                                                    size: 24,
-                                                    color: Color(0xFF6366F1)),
-                                                tooltip: 'Баркод уншуулах',
-                                                onPressed: () {
-                                                  // TODO: Implement barcode scanner
-                                                  ScaffoldMessenger.of(context)
-                                                      .showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text(
-                                                          'Баркод уншуулах функц хөгжүүлэгдэж байна...'),
-                                                      duration:
-                                                          Duration(seconds: 2),
-                                                    ),
-                                                  );
-                                                },
-                                              ),
-                                            ],
-                                          ),
-                                          filled: true,
-                                          fillColor: Colors.white,
-                                          border: OutlineInputBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                            borderSide: BorderSide.none,
-                                          ),
-                                          enabledBorder: OutlineInputBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                            borderSide: BorderSide.none,
-                                          ),
-                                          focusedBorder: OutlineInputBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                            borderSide: const BorderSide(
-                                                color: Color(0xFF6366F1),
-                                                width: 2),
-                                          ),
-                                        ),
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          color: Color(0xFF0F172A),
-                                        ),
-                                        cursorColor: Color(0xFF0D9488),
-                                        onChanged: (value) {
-                                          setState(() {}); // Rebuild to filter
-                                        },
-                                      ),
-                                    );
+                                    // Гол дэлгэц дээр бичихэд доор нь саналын жагсаалт гаргахгүй.
+                                    // Сонголт: «Бараа сонгох» эсвэл Enter → доод самбар.
 
                                     return Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.stretch,
                                       children: [
-                                        searchBar,
+                                        OutlinedButton.icon(
+                                          onPressed: productProvider
+                                                  .products.isEmpty
+                                              ? null
+                                              : _openProductPicker,
+                                          icon: const Icon(
+                                              Icons.inventory_2_outlined,
+                                              size: 20),
+                                          label: const Text('Бараа сонгох'),
+                                        ),
                                         const SizedBox(height: 12),
 
                                         // Show message if no products loaded
@@ -1555,379 +1719,376 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                               ],
                                             ),
                                           ),
-
-                                        // Show message if search returns no results
-                                        if (_selectedShopName != null &&
-                                            productProvider
-                                                .products.isNotEmpty &&
-                                            _productSearchController
-                                                .text.isNotEmpty &&
-                                            filteredProducts.isEmpty)
-                                          Container(
-                                            padding: const EdgeInsets.all(16),
-                                            decoration: BoxDecoration(
-                                              color: Colors.grey[100],
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                              border: Border.all(
-                                                  color: Colors.grey[300]!),
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                Icon(Icons.search_off,
-                                                    color: Colors.grey[600]),
-                                                const SizedBox(width: 12),
-                                                Expanded(
-                                                  child: Text(
-                                                    '"${_productSearchController.text}" гэсэн бараа олдсонгүй',
-                                                    style: TextStyle(
-                                                        color:
-                                                            Colors.grey[800]),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-
-                                        // Хайлт хоосон үед барааны мэдээлэл харагдахгүй (requirement).
-                                        if (_productSearchController
-                                            .text
-                                            .trim()
-                                            .isEmpty)
-                                          Container(
-                                            padding: const EdgeInsets.all(14),
-                                            decoration: BoxDecoration(
-                                              color: Colors.grey[100],
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                              border: Border.all(
-                                                  color: Colors.grey[300]!),
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                Icon(Icons.search_rounded,
-                                                    color: Colors.grey[700]),
-                                                const SizedBox(width: 10),
-                                                Expanded(
-                                                  child: Text(
-                                                    'Бараа хайхын тулд дээрээс нэр/баркод/SKU бичнэ үү.',
-                                                    style: TextStyle(
-                                                        color:
-                                                            Colors.grey[800]),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          )
-                                        else if (filteredProducts.isNotEmpty)
-                                          Container(
-                                            decoration: BoxDecoration(
-                                              color: Colors.white,
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                              border: Border.all(
-                                                color: const Color(0xFF0D9488)
-                                                    .withValues(alpha: 0.25),
-                                              ),
-                                              boxShadow: [
-                                                BoxShadow(
-                                                  color: Colors.black
-                                                      .withValues(alpha: 0.05),
-                                                  blurRadius: 10,
-                                                  offset: const Offset(0, 3),
-                                                ),
-                                              ],
-                                            ),
-                                            child: Column(
-                                              children: [
-                                                Padding(
-                                                  padding:
-                                                      const EdgeInsets.fromLTRB(
-                                                          12, 10, 12, 6),
-                                                  child: Row(
-                                                    children: [
-                                                      const Icon(
-                                                        Icons
-                                                            .touch_app_rounded,
-                                                        size: 18,
-                                                        color:
-                                                            Color(0xFF0D9488),
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Expanded(
-                                                        child: Text(
-                                                          'Дээрээс нь дараад шууд нэмнэ (2 ширхэгээр харуулна)',
-                                                          style: TextStyle(
-                                                            color: Colors
-                                                                .grey[700],
-                                                            fontWeight:
-                                                                FontWeight.w600,
-                                                            fontSize: 12,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                                const Divider(height: 1),
-                                                ListView.builder(
-                                                  shrinkWrap: true,
-                                                  physics:
-                                                      const NeverScrollableScrollPhysics(),
-                                                  itemCount:
-                                                      filteredProducts.length >
-                                                              2
-                                                          ? 2
-                                                          : filteredProducts
-                                                              .length,
-                                                  itemBuilder:
-                                                      (context, index) {
-                                                    final product =
-                                                        filteredProducts[index];
-                                                    final price =
-                                                        _getProductPrice(
-                                                            product);
-                                                    final stock =
-                                                        product.stockQuantity;
-
-                                                    return ListTile(
-                                                      dense: true,
-                                                      contentPadding:
-                                                          const EdgeInsets
-                                                              .symmetric(
-                                                              horizontal: 12,
-                                                              vertical: 2),
-                                                      title: Text(
-                                                        product.name,
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                        style: const TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.w700,
-                                                        ),
-                                                      ),
-                                                      subtitle: Text(
-                                                        [
-                                                          if (price > 0)
-                                                            '${price.toStringAsFixed(0)} ₮',
-                                                          if (stock != null)
-                                                            'Үлдэгдэл: $stock',
-                                                          if ((product.barcode ??
-                                                                  '')
-                                                              .trim()
-                                                              .isNotEmpty)
-                                                            'Barcode: ${product.barcode}',
-                                                        ].join(' • '),
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                      ),
-                                                      trailing: const Icon(
-                                                        Icons
-                                                            .add_circle_outline_rounded,
-                                                        color:
-                                                            Color(0xFF0D9488),
-                                                      ),
-                                                      onTap: () async {
-                                                        if (_selectedShopName ==
-                                                            null) {
-                                                          if (!mounted) return;
-                                                          ScaffoldMessenger.of(
-                                                                  context)
-                                                              .showSnackBar(
-                                                            const SnackBar(
-                                                              content: Text(
-                                                                  'Эхлээд дэлгүүр сонгоно уу'),
-                                                              backgroundColor:
-                                                                  Colors.orange,
-                                                              duration: Duration(
-                                                                  seconds: 3),
-                                                            ),
-                                                          );
-                                                          return;
-                                                        }
-                                                        if (_hasPromotion(
-                                                            product)) {
-                                                          await _askPromotionUsage(
-                                                              product);
-                                                        }
-                                                        setState(() {
-                                                          _currentProduct =
-                                                              product;
-                                                        });
-                                                        _addProductToCart();
-                                                        setState(() {
-                                                          _productSearchController
-                                                              .clear();
-                                                        });
-                                                      },
-                                                    );
-                                                  },
-                                                ),
-                                                if (filteredProducts.length > 2)
-                                                  Padding(
-                                                    padding:
-                                                        const EdgeInsets.fromLTRB(
-                                                            12, 8, 12, 10),
-                                                    child: Text(
-                                                      '+${filteredProducts.length - 2} бараа байна. Илүү нарийвчилж хайгаарай.',
-                                                      style: TextStyle(
-                                                        color: Colors.grey[600],
-                                                        fontSize: 12,
-                                                      ),
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          )
-                                        else
-                                          const SizedBox.shrink(),
                                       ],
                                     );
                                   },
                                 ),
                                 ),
-                                const SizedBox(height: 16),
-                                // Барааны үнэ
-                                if (_currentProduct != null)
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                          color: Colors.grey.shade200),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
+                                const SizedBox(height: 8),
+                                if (_currentProduct != null) ...[
+                                  Builder(
+                                    builder: (context) {
+                                      final p = _currentProduct!;
+                                      final upbRaw = (p.unitsPerBox ?? 1);
+                                      final upb = upbRaw <= 0 ? 1 : upbRaw;
+                                      final supportsBox = upb > 1;
+                                      final unit = supportsBox
+                                          ? (_productUnitModes[p.id] == 'box'
+                                              ? 'box'
+                                              : 'piece')
+                                          : 'piece';
+
+                                      return Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          border: Border.all(
+                                              color: Colors.grey.shade200),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
                                           children: [
-                                            const Text(
-                                              'Үнэ:',
-                                              style: TextStyle(fontSize: 14),
-                                            ),
                                             Text(
-                                              '${_getProductPrice(_currentProduct!).toStringAsFixed(0)} ₮',
+                                              p.name,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
                                               style: const TextStyle(
                                                 fontSize: 16,
-                                                fontWeight: FontWeight.bold,
-                                                color: Color(0xFF0D9488),
+                                                fontWeight: FontWeight.w800,
+                                                color: Color(0xFF0F172A),
                                               ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    '1 хайрцагт: $upb',
+                                                    style: const TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ),
+                                                Expanded(
+                                                  child: Text(
+                                                    'Үлдэгдэл: ${p.stockQuantity ?? '-'}',
+                                                    textAlign: TextAlign.right,
+                                                    style: const TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Builder(
+                                              builder: (context) {
+                                                final hasOnePlusOne =
+                                                    _hasPromotion(p);
+                                                final dp =
+                                                    (p.discountPercent ?? 0);
+                                                final hasDiscount = dp > 0;
+                                                final hasLinePieceBulk =
+                                                    PromotionPricingUtils
+                                                        .isLineOnlyPieceBulkTierProduct(
+                                                            p.name);
+                                                final hasPromo = hasOnePlusOne ||
+                                                    hasDiscount ||
+                                                    hasLinePieceBulk;
+                                                if (!hasPromo) {
+                                                  return const SizedBox.shrink();
+                                                }
+
+                                                final checked =
+                                                    _productUsePromotion[p.id] ==
+                                                        true;
+
+                                                String label() {
+                                                  final bf = PromotionPricingUtils
+                                                      .parseBuyFree(
+                                                          p.promotionText);
+                                                  final bulk = PromotionPricingUtils
+                                                      .parseBulkDiscount(
+                                                          p.promotionText);
+
+                                                  final parts = <String>[];
+
+                                                  // 1+1 / 1+2: "Хэд авбал хэд үнэгүй"
+                                                  if (bf != null) {
+                                                    parts.add(
+                                                      '${bf.buy} ширхэг авбал ${bf.free} ширхэг үнэгүй',
+                                                    );
+                                                  }
+
+                                                  // Bulk discount: "N ширхэг авбал -P%"
+                                                  if (bulk != null) {
+                                                    parts.add(
+                                                      '${bulk.minQty} ширхэг авбал -${bulk.percent}%',
+                                                    );
+                                                  }
+
+                                                  if (PromotionPricingUtils
+                                                      .isLineOnlyPieceBulkTierProduct(
+                                                          p.name)) {
+                                                    parts.add(
+                                                      '50 ш+ -3%, 100 ш+ -5%',
+                                                    );
+                                                  }
+
+                                                  // Base discountPercent (fallback / always show if present)
+                                                  if (hasDiscount) {
+                                                    parts.add('-$dp%');
+                                                  }
+
+                                                  if (parts.isEmpty) {
+                                                    return 'Урамшуулал/хямдрал ашиглах';
+                                                  }
+                                                  return 'Урамшуулал ашиглах (${parts.join(', ')})';
+                                                }
+
+                                                return CheckboxListTile(
+                                                  contentPadding:
+                                                      EdgeInsets.zero,
+                                                  value: checked,
+                                                  onChanged: (v) {
+                                                    setState(() {
+                                                      _productUsePromotion[p.id] =
+                                                          v ?? false;
+                                                    });
+                                                  },
+                                                  title: Text(label()),
+                                                  controlAffinity:
+                                                      ListTileControlAffinity
+                                                          .leading,
+                                                );
+                                              },
+                                            ),
+                                            const SizedBox(height: 6),
+                                            if (supportsBox) ...[
+                                              ToggleButtons(
+                                                isSelected: [
+                                                  unit == 'box',
+                                                  unit == 'piece',
+                                                ],
+                                                onPressed: (i) {
+                                                  final nextUnit =
+                                                      i == 0 ? 'box' : 'piece';
+                                                  if (nextUnit == unit) return;
+                                                  setState(() {
+                                                    _productUnitModes[p.id] =
+                                                        nextUnit;
+                                                    final curQty =
+                                                        _productQuantities[
+                                                                p.id] ??
+                                                            1;
+                                                    final nextQty =
+                                                        nextUnit == 'box'
+                                                            ? (curQty ~/ upb)
+                                                                .clamp(1, 1 << 30)
+                                                            : curQty.clamp(
+                                                                1, 1 << 30);
+                                                    _productQuantities[p.id] =
+                                                        nextQty;
+                                                    _addQtyController.text =
+                                                        nextQty.toString();
+                                                  });
+                                                },
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                                constraints:
+                                                    const BoxConstraints(
+                                                        minHeight: 36),
+                                                children: const [
+                                                  Padding(
+                                                    padding:
+                                                        EdgeInsets.symmetric(
+                                                            horizontal: 10),
+                                                    child: Text('Хайрцаг'),
+                                                  ),
+                                                  Padding(
+                                                    padding:
+                                                        EdgeInsets.symmetric(
+                                                            horizontal: 10),
+                                                    child: Text('Ширхэг'),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 10),
+                                            ],
+                                            Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.center,
+                                              children: [
+                                                Expanded(
+                                                  child: TextField(
+                                                    controller:
+                                                        _addQtyController,
+                                                    keyboardType:
+                                                        TextInputType.number,
+                                                    decoration: InputDecoration(
+                                                      labelText: unit == 'box'
+                                                          ? 'Хайрцаг'
+                                                          : 'Ширхэг',
+                                                      border:
+                                                          const OutlineInputBorder(),
+                                                      isDense: true,
+                                                    ),
+                                                    onChanged: (v) {
+                                                      final n =
+                                                          int.tryParse(v) ?? 0;
+                                                      _productQuantities[p.id] =
+                                                          n < 1 ? 1 : n;
+                                                      setState(() {});
+                                                    },
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Builder(
+                                                  builder: (context) {
+                                                    final raw = _addQtyController
+                                                        .text
+                                                        .trim();
+                                                    final n =
+                                                        int.tryParse(raw) ?? 0;
+                                                    final ordered =
+                                                        n < 1 ? 1 : n;
+                                                    final pieces = unit ==
+                                                            'box'
+                                                        ? ordered * upb
+                                                        : ordered;
+                                                    final applyPromo =
+                                                        _productUsePromotion[
+                                                                p.id] ==
+                                                            true;
+                                                    final d =
+                                                        PromotionPricingUtils
+                                                            .decide(
+                                                      paidPieces: pieces,
+                                                      baseUnitPrice:
+                                                          _getProductPrice(p),
+                                                      promotionText:
+                                                          p.promotionText,
+                                                      baseDiscountPercent:
+                                                          p.discountPercent,
+                                                      apply: applyPromo,
+                                                      catalogProductName:
+                                                          p.name,
+                                                    );
+                                                    final unitPrice =
+                                                        d.unitPriceAfterDiscount;
+                                                    final line =
+                                                        unitPrice * pieces;
+                                                    return Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment.end,
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        if (applyPromo &&
+                                                            d.freePieces > 0)
+                                                          Text(
+                                                            'нийт ${d.totalPieces} ш (${d.paidPieces} төлөх + ${d.freePieces} үнэгүй)',
+                                                            textAlign:
+                                                                TextAlign.right,
+                                                            style: TextStyle(
+                                                              fontSize: 11,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600,
+                                                              color: Colors
+                                                                  .deepPurple
+                                                                  .shade700,
+                                                            ),
+                                                          ),
+                                                        Text(
+                                                          '= ${line.toStringAsFixed(0)} ₮',
+                                                          style:
+                                                              const TextStyle(
+                                                            fontSize: 14,
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                            color: Color(
+                                                                0xFF0D9488),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    );
+                                                  },
+                                                ),
+                                                const SizedBox(width: 10),
+                                                SizedBox(
+                                                  height: 44,
+                                                  child: ElevatedButton(
+                                                    onPressed: _currentProduct ==
+                                                            null
+                                                        ? null
+                                                        : () {
+                                                            if (_selectedShopName ==
+                                                                null) {
+                                                              _showShopRequiredSnack();
+                                                              return;
+                                                            }
+                                                            _addProductToCart();
+                                                          },
+                                                    style: ElevatedButton
+                                                        .styleFrom(
+                                                      backgroundColor:
+                                                          Colors.blue,
+                                                      foregroundColor:
+                                                          Colors.white,
+                                                    ),
+                                                    child: const Text('НЭМЭХ'),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
+                                              children: [
+                                                Text(
+                                                  unit == 'box'
+                                                      ? '1 хайрцагийн үнэ:'
+                                                      : '1 ширхэгийн үнэ:',
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  '${_getProductDisplayPriceForUnit(p, unit).toStringAsFixed(0)} ₮',
+                                                  style: const TextStyle(
+                                                    fontSize: 15,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: Color(0xFF0D9488),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ],
                                         ),
-                                        if (_currentProduct!
-                                            .unitPriceExcludesVat) ...[
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            'НӨАТ ороогүй үнэ',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey[700],
-                                            ),
-                                          ),
-                                        ],
-                                        const SizedBox(height: 8),
-                                        if ((_currentProduct!.barcode ?? '')
-                                            .isNotEmpty)
-                                          Text(
-                                            'Barcode: ${_currentProduct!.barcode}',
-                                            style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey[700]),
-                                          ),
-                                        if (_currentProduct!.stockQuantity !=
-                                            null)
-                                          Text(
-                                            'Үлдэгдэл: ${_currentProduct!.stockQuantity} ширхэг',
-                                            style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey[700]),
-                                          ),
-                                        if (_currentProduct!.unitsPerBox !=
-                                            null)
-                                          Text(
-                                            'Хайрцаг дахь тоо: ${_currentProduct!.unitsPerBox}',
-                                            style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey[700]),
-                                          ),
-                                      ],
-                                    ),
+                                      );
+                                    },
                                   ),
-                                if (_currentProduct != null)
                                   const SizedBox(height: 16),
-                                // Нэмэх товч - ТОМ, ТОД
-                                SizedBox(
-                                  width: double.infinity,
-                                  height: 50,
-                                  child: ElevatedButton.icon(
-                                    onPressed: (_selectedShopName == null ||
-                                            _currentProduct == null)
-                                        ? null
-                                        : () {
-                                            _addProductToCart();
-                                          },
-                                    icon:
-                                        const Icon(Icons.add_circle, size: 24),
-                                    label: const Text(
-                                      'Сагсанд нэмэх ➕',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF0D9488),
-                                      foregroundColor: Colors.white,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      elevation: 3,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                // Hint text
-                                if (_selectedItems.isEmpty)
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF0F9FF),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                          color: const Color(0xFF3B82F6)),
-                                    ),
-                                    child: const Row(
-                                      children: [
-                                        Icon(Icons.info_outline,
-                                            color: Color(0xFF3B82F6), size: 20),
-                                        SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            'Олон бараа нэмж болно! Бараа бүрийг "Сагсанд нэмэх" дарж нэмнэ үү.',
-                                            style: TextStyle(
-                                              color: Color(0xFF1E40AF),
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
+                                ] else ...[
+                                  const SizedBox(height: 16),
+                                ],
+                          const SizedBox(height: 12),
 
-                          // Сонгосон бараанууд (шууд засварлана)
+                          // Сонгосон бараанууд
                           if (_selectedItems.isNotEmpty) ...[
                             Container(
+                              key: _cartSectionKey,
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
                                 color: Colors.white,
@@ -1956,17 +2117,18 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                   return CartItemsWidget(
                                     items: _selectedItems,
                                     onRemoveItem: _removeProductFromCart,
-                                    onQuantityChanged: (i, unit, value) {
-                                      _updateCartItemQuantity(i, unit, value);
-                                    },
+                                    onItemChanged: _replaceCartItem,
                                     totalAmount: _totalAmount,
+                                    lineSubtotalBeforeCartBulk: _cartLineSubtotal,
+                                    cartBulkDiscountPercentIfUniform:
+                                        _cartBulkUniformDiscountPercentForUi,
                                     stockByProductId:
                                         stockMap.isNotEmpty ? stockMap : null,
                                   );
                                 },
                               ),
                             ),
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 12),
                           ],
 
                           // Notes
@@ -1980,126 +2142,42 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                               alignLabelWithHint: true,
                             ),
                           ),
-                          const SizedBox(height: 100), // Space for bottom bar
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Sticky Bottom Action Bar
-          if (_selectedItems.isNotEmpty)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, -2),
-                    ),
-                  ],
-                ),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: SafeArea(
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Нийт дүн',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                                fontWeight: FontWeight.w500,
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 44,
+                            child: ElevatedButton(
+                              onPressed: _isLoading || _selectedItems.isEmpty
+                                  ? null
+                                  : () {
+                                      if (_selectedShopName == null) {
+                                        _showShopRequiredSnack();
+                                        return;
+                                      }
+                                      if (_mode == _SalesEntryMode.orderOnly) {
+                                        _showPaymentMethodDialogForOrderOnly();
+                                      } else {
+                                        _showPaymentMethodDialog();
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                foregroundColor: Colors.white,
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${_totalAmount.toStringAsFixed(0)} ₮',
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF6366F1),
-                              ),
-                            ),
-                            if (_anyUnitPriceExcludesVat) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                'Баримт (НӨАТ орсон): ${_receiptGrossTotal.toStringAsFixed(0)} ₮',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey[600],
-                                  fontWeight: FontWeight.w500,
+                              child: Text(
+                                _isLoading
+                                    ? 'Боловсруулж байна...'
+                                    : 'ХАДГАЛАХ',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
                                 ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        flex: 2,
-                        child: SizedBox(
-                          height: 56,
-                          child: ElevatedButton.icon(
-                            onPressed: (_isLoading ||
-                                    _selectedItems.isEmpty ||
-                                    _selectedShopName == null)
-                                ? null
-                                : (_mode == _SalesEntryMode.orderOnly
-                                    ? _createOrderOnlyAndPush
-                                    : _showPaymentMethodDialog),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF6366F1),
-                              foregroundColor: Colors.white,
-                              elevation: 4,
-                              shadowColor:
-                                  const Color(0xFF6366F1).withOpacity(0.4),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                            icon: _isLoading
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.check_circle, size: 24),
-                            label: Text(
-                              _isLoading
-                                  ? 'Боловсруулж байна...'
-                                  : (_mode == _SalesEntryMode.orderOnly
-                                      ? 'Захиалга (хүргэлт) үүсгээд илгээх'
-                                      : 'Хэвлээд дуусгах'),
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
                               ),
                             ),
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
+                          const SizedBox(height: 60),
+                        ],
+          ),
+        ),
+      ),
       ),
     );
   }

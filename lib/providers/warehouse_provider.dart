@@ -7,6 +7,8 @@ import '../models/shop_model.dart';
 import '../services/sugalaanii_dugaar.dart';
 import '../services/warehouse_web_bridge.dart';
 import 'auth_provider.dart';
+import '../utils/product_active_utils.dart';
+import '../utils/warehouse_agent_shop_identity_one_file.dart';
 
 class WarehouseProvider extends ChangeNotifier {
   final WarehouseWebBridge _bridge;
@@ -126,13 +128,13 @@ class WarehouseProvider extends ChangeNotifier {
       _loading = false;
       if (kDebugMode) {
         debugPrint(
-            '[WarehouseProvider] ✅ Connected with existing token (no double login)');
+            '[WarehouseProvider] [ok] Connected with existing token (no double login)');
       }
       notifyListeners();
       return true;
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[WarehouseProvider] ❌ connectWithExistingToken failed: $e');
+        debugPrint('[WarehouseProvider] [err] connectWithExistingToken failed: $e');
       }
       _error = e.toString();
       _connected = false;
@@ -158,20 +160,16 @@ class WarehouseProvider extends ChangeNotifier {
         userData = null;
       }
       if (userData != null) {
-        // Extract and save agent ID if available
-        final agentId = userData['agentId'] ?? userData['id'];
-        if (agentId != null) {
-          final agentIdInt = (agentId is num)
-              ? agentId.toInt()
-              : int.tryParse(agentId.toString());
-          if (agentIdInt != null) {
-            // Save to SharedPreferences for LocationProvider
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setInt('agent_id', agentIdInt);
-            if (kDebugMode) {
-              debugPrint(
-                  '[WarehouseProvider] ✅ Agent ID хадгалагдлаа: $agentIdInt');
-            }
+        final agentIdInt =
+            WarehouseAgentShopIdentity.parseAgentIdFromProfileOrUserMap(
+                userData);
+        if (agentIdInt != null) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setInt(WarehouseAgentShopIdentity.prefsAgentIdKey,
+              agentIdInt);
+          if (kDebugMode) {
+            debugPrint(
+                '[WarehouseProvider] [ok] Agent ID saved: $agentIdInt');
           }
         }
 
@@ -188,7 +186,7 @@ class WarehouseProvider extends ChangeNotifier {
       } else {
         if (kDebugMode) {
           debugPrint(
-              '[WarehouseProvider] ⚠️ Profile payload missing user: $profileData');
+              '[WarehouseProvider] [warn] Profile payload missing user: $profileData');
         }
       }
     } catch (e) {
@@ -209,11 +207,14 @@ class WarehouseProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> refreshProducts() async {
+  Future<void> refreshProducts({
+    bool includeInactive = false,
+    bool excludeZeroStock = false,
+  }) async {
     if (!_connected) {
       if (kDebugMode)
         debugPrint(
-            '[WarehouseProvider] ⚠️ Not connected, skipping product refresh');
+            '[WarehouseProvider] [warn] Not connected, skipping product refresh');
       return;
     }
     _loading = true;
@@ -222,22 +223,48 @@ class WarehouseProvider extends ChangeNotifier {
 
     try {
       if (kDebugMode) {
-        debugPrint('[WarehouseProvider] 🚀 Starting product refresh...');
+        debugPrint('[WarehouseProvider] product refresh...');
       }
-      _products = await _bridge.fetchAllProducts();
+      final fetched =
+          await _bridge.fetchAllProducts(includeInactive: includeInactive);
+      var next = fetched;
+      // Backend may ignore includeInactive; enforce active-only on mobile.
+      if (!includeInactive) {
+        next = next.where((p) => isProductActive(p)).toList();
+      }
+      if (excludeZeroStock) {
+        next = next.where((p) => (p.stockQuantity ?? 0) > 0).toList();
+      }
+      _products = next;
       if (kDebugMode) {
+        final inactive =
+            _products.where((p) => !isProductActive(p)).length;
+        final active = _products.length - inactive;
         debugPrint(
-            '[WarehouseProvider] ✅ Successfully fetched ${_products.length} products');
+          '[WarehouseProvider] products: API rows=${fetched.length}, '
+          'after filters=${_products.length} '
+          '(activeOnly=${!includeInactive} zeroStockExcluded=$excludeZeroStock)',
+        );
+        debugPrint(
+            '[WarehouseProvider] [ok] list size=${_products.length} (active=$active inactive=$inactive)');
         if (_products.isNotEmpty) {
           final withPrice = _products.where((p) => p.price > 0).length;
           final withStock =
               _products.where((p) => (p.stockQuantity ?? 0) > 0).length;
           debugPrint(
-              '[WarehouseProvider] 📊 Product stats: $withPrice with prices, $withStock with stock');
+              '[WarehouseProvider] stats: withPrice=$withPrice withStock=$withStock');
           debugPrint(
-              '[WarehouseProvider] 📦 First product: ${_products.first.name} - Price: ${_products.first.price}');
+              '[WarehouseProvider] first: ${_products.first.name} price=${_products.first.price}');
+          final firstInactive = _products
+              .cast<Product?>()
+              .firstWhere((p) => p != null && !isProductActive(p),
+                  orElse: () => null);
+          if (firstInactive != null) {
+            debugPrint(
+                '[WarehouseProvider] example inactive: ${firstInactive.name} id=${firstInactive.id}');
+          }
         } else {
-          debugPrint('[WarehouseProvider] ⚠️ No products fetched!');
+          debugPrint('[WarehouseProvider] [warn] No products after filters');
         }
       }
       _loading = false;
@@ -257,7 +284,7 @@ class WarehouseProvider extends ChangeNotifier {
         final errorMsg = e.toString();
         if (kDebugMode) {
           debugPrint(
-              '[WarehouseProvider] ❌ Error fetching products: $errorMsg');
+              '[WarehouseProvider] [err] Error fetching products: $errorMsg');
           if (e is DioException) {
             debugPrint('[WarehouseProvider] Status: ${e.response?.statusCode}');
             debugPrint('[WarehouseProvider] Response: ${e.response?.data}');
@@ -282,15 +309,13 @@ class WarehouseProvider extends ChangeNotifier {
       // Add delay to prevent rate limiting
       await Future.delayed(const Duration(milliseconds: 300));
 
-      // Зөвхөн /api/customers endpoint ашиглана.
-      // Backend нь SalesAgent-д зөвхөн assignedAgentId-аар filter хийсэн
-      // customers-ийг л буцаана. Store table-ийн seed data (Central Wholesale
-      // Market гэх мэт) орохгүй.
+      // GET /api/customers — `forAllAgents` + `includeAllCustomers` query (bridge)
+      // нэмэгдсэн; бүх дэлгүүрийг авахын тулд backend эдгээр түлхүүрийг дэмжих ёстой.
       _shops = await _bridge.fetchAllShops(pageSize: pageSize);
 
       if (kDebugMode) {
         debugPrint(
-            '[WarehouseProvider] ✅ Fetched ${_shops.length} shops (assigned customers only)');
+            '[WarehouseProvider] [ok] Fetched ${_shops.length} shops (customers list)');
         if (_shops.isNotEmpty) {
           debugPrint(
               '[WarehouseProvider] First shop: ${_shops.first.name} - Address: ${_shops.first.address}');
@@ -309,7 +334,7 @@ class WarehouseProvider extends ChangeNotifier {
       } else {
         final errorMsg = e.toString();
         if (kDebugMode) {
-          debugPrint('[WarehouseProvider] ❌ Error fetching shops: $errorMsg');
+          debugPrint('[WarehouseProvider] [err] Error fetching shops: $errorMsg');
           if (e is DioException) {
             debugPrint('[WarehouseProvider] Status: ${e.response?.statusCode}');
             debugPrint('[WarehouseProvider] Response: ${e.response?.data}');
@@ -407,6 +432,24 @@ class WarehouseProvider extends ChangeNotifier {
         orderId: orderId,
         reason: reason,
       );
+    } catch (e) {
+      if (e is DioException && e.response?.statusCode == 401) {
+        await disconnect();
+      }
+      rethrow;
+    }
+  }
+
+  /// POST /api/orders/:id/ebarimt-return-done — mark returned & restock.
+  Future<Map<String, dynamic>> ebarimtReturnDone({
+    required int orderId,
+    required String returnId,
+  }) async {
+    if (!_connected) {
+      throw Exception('Not connected to warehouse backend');
+    }
+    try {
+      return await _bridge.ebarimtReturnDone(orderId: orderId, returnId: returnId);
     } catch (e) {
       if (e is DioException && e.response?.statusCode == 401) {
         await disconnect();
@@ -518,6 +561,7 @@ class WarehouseProvider extends ChangeNotifier {
     if (!_connected) {
       // Return local products if not connected
       return _products.where((product) {
+        if (!isProductActive(product)) return false;
         if (hasPrice && product.price <= 0) return false;
         if (hasStock && (product.stockQuantity ?? 0) <= 0) return false;
         return true;
@@ -534,6 +578,7 @@ class WarehouseProvider extends ChangeNotifier {
       }
       // Fallback to local products
       return _products.where((product) {
+        if (!isProductActive(product)) return false;
         if (hasPrice && product.price <= 0) return false;
         if (hasStock && (product.stockQuantity ?? 0) <= 0) return false;
         return true;

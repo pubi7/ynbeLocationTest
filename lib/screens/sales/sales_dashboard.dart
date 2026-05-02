@@ -45,12 +45,13 @@ class _SalesDashboardState extends State<SalesDashboard> {
     super.initState();
     _selectedDate = DateUtils.dateOnly(DateTime.now());
     _loadTargets();
-    _loadMonthlyTarget();
-    _loadProductsForSale();
-    _loadOrders();
-
-    // Listen for product changes (e.g. stock updates after orders)
+    // OrderProvider.notifyListeners / setState нь build фазад хориглогдоно —
+    // initState-аас шууд await-ийн өмнөх хэсгийг post-frame руу.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadMonthlyTarget();
+      _loadProductsForSale();
+      _loadOrders();
       final productProvider =
           Provider.of<ProductProvider>(context, listen: false);
       productProvider.addListener(_onProductsChanged);

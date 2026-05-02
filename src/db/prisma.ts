@@ -11,10 +11,11 @@
  * The actual database operations should be handled by your warehouse backend.
  */
 
-// Stub Prisma client - replace with actual Prisma client in production
+// Stub Prisma client - replace with actual Prisma client in production.
+// Return types must not be inferred as literal `null` only, or callers narrow to `never` after guards.
 const prisma = {
   product: {
-    findFirst: async (args: any) => {
+    findFirst: async (_args: any): Promise<any> => {
       console.warn("Prisma stub: findFirst called but not implemented");
       return null;
     },
@@ -36,7 +37,7 @@ const prisma = {
     },
   },
   order: {
-    findUnique: async (args: any) => {
+    findUnique: async (_args: any): Promise<any> => {
       console.warn("Prisma stub: findUnique called but not implemented");
       return null;
     },
