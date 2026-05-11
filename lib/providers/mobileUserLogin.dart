@@ -79,8 +79,10 @@ class MobileUserLoginProvider extends ChangeNotifier {
             fallbackEmail: identifier.trim(), authProvider: authProvider);
       }
 
-      // Enrich from profile when available
-      await _loadUserProfile(authProvider: authProvider);
+      // Login response-д user байхгүй үед л profile — давхар GET-ийг хэмнэнэ.
+      if (_user == null || _user!.id.isEmpty) {
+        await _loadUserProfile(authProvider: authProvider);
+      }
 
       if (_user == null && authProvider?.user != null) {
         _user = authProvider!.user;
@@ -147,14 +149,14 @@ class MobileUserLoginProvider extends ChangeNotifier {
               combined.contains('handshakeexception')) {
             _error =
                 'HTTPS сертификат энэ хаягтай таарахгүй (ихэвчлэн IP биш, домэйнээр хандана). '
-                'Тохиргоо → Server URL-д сертификаттай домэйн оруулна уу. '
+                'Сүлжээний админтай холбогдоно уу. '
                 'Дотоод тест: flutter run --dart-define=WAREHOUSE_TLS_INSECURE=true';
           } else if (e.type == DioExceptionType.connectionError &&
               (combined.contains('failed host lookup') ||
                   combined.contains('no address associated with hostname'))) {
             _error =
                 'Серверийн домэйн DNS-д олдсонгүй (A/AAAA record байхгүй эсвэл буруу). '
-                'Домэйн бүртгэлээс шалгаад, түр Тохиргоо → Server URL-д ажиллаж буй хаяг оруулна уу.';
+                'Домэйн болон сүлжээгээ шалгана уу.';
           } else if (statusCode == 401 || statusCode == 403) {
             // Check if it's a user not registered error
             if (errorMessage.toLowerCase().contains('not registered') ||
@@ -177,8 +179,7 @@ class MobileUserLoginProvider extends ChangeNotifier {
                 raw404.contains('404 not found')) {
               _error =
                   'Nginx /api зам backend руу холбогдоогүй байна (HTML 404). '
-                  'Сервер: location /api/ → proxy_pass http://127.0.0.1:3000/api/; '
-                  'Түр: firewall нээсэн бол Тохиргоо → http://<сервер-IP>:3000';
+                  'Серверийн proxy болон firewall тохиргоог шалгана уу.';
             } else {
               _error = 'Сервис олдсонгүй. Холболтоо шалгана уу.';
             }
@@ -197,11 +198,11 @@ class MobileUserLoginProvider extends ChangeNotifier {
             errorText.contains('HandshakeException') ||
             errorText.contains('IP address mismatch')) {
           _error =
-              'HTTPS сертификат энэ хаягтай таарахгүй. Тохиргооноос домэйн хаяг ашиглана уу эсвэл түр: WAREHOUSE_TLS_INSECURE=true';
+              'HTTPS сертификат энэ хаягтай таарахгүй. Домэйнээр хандах эсвэл түр: WAREHOUSE_TLS_INSECURE=true';
         } else if (errorText.contains('Failed host lookup') ||
             errorText.contains('No address associated with hostname')) {
           _error =
-              'Домэйн DNS-д олдсонгүй. A/AAAA record нэмэх эсвэл Тохиргооноос зөв Server URL ашиглана уу.';
+              'Домэйн DNS-д олдсонгүй. A/AAAA record болон сүлжээгээ шалгана уу.';
         } else if (errorText.contains('connection') ||
             errorText.contains('timeout') ||
             errorText.contains('network') ||

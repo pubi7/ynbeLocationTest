@@ -121,9 +121,10 @@ class _LoginScreenState extends State<LoginScreen> {
       await _applyLoginServerUrl();
       await loginProvider.applyRememberMe(true);
       await warehouseProvider.connectWithExistingToken(
-          authProvider: authProvider);
-      await warehouseProvider.refreshProducts();
-      await warehouseProvider.refreshShops(authProvider: authProvider);
+        authProvider: authProvider,
+        fetchProfile: false,
+      );
+      await warehouseProvider.refreshCatalogAfterLogin();
       shopProvider.setShops(warehouseProvider.shops);
       productProvider.setProducts(warehouseProvider.products);
 
@@ -160,6 +161,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _loadSavedServerUrl() async {
     try {
+      if (!ApiConfig.allowWarehouseUrlOverride) {
+        if (mounted) {
+          _serverUrlController.text = ApiConfig.defaultBackendServerUrl;
+        }
+        return;
+      }
       final prefs = await SharedPreferences.getInstance();
       final v = prefs.getString('warehouse_api_base_url');
       if (v != null && v.trim().isNotEmpty) {
@@ -177,9 +184,11 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (_) {}
   }
 
-  /// Нэвтрэх / biometric-ийн өмнө shared bridge + SharedPreferences-д Server URL хадгална.
+  /// Нэвтрэх / biometric-ийн өмнө shared bridge-д API суурь тохируулна (prefs зөвхөн override идэвхтэй үед).
   Future<void> _applyLoginServerUrl() async {
-    var raw = _serverUrlController.text.trim();
+    var raw = ApiConfig.allowWarehouseUrlOverride
+        ? _serverUrlController.text.trim()
+        : ApiConfig.defaultBackendServerUrl;
     if (raw.isEmpty) {
       raw = ApiConfig.defaultBackendServerUrl;
       if (mounted) {
@@ -204,14 +213,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _onLoginProviderChanged() {
-    if (mounted) {
-      final loginProvider =
-          Provider.of<MobileUserLoginProvider>(context, listen: false);
-      setState(() {
-        _isLoading = loginProvider.isLoading;
-      });
-      _startCountdownTimer(loginProvider);
-    }
+    if (!mounted) return;
+    final loginProvider =
+        Provider.of<MobileUserLoginProvider>(context, listen: false);
+    // [_isLoading]-ийг provider-тэй бүү синк хий: API дуусмагц provider false болох үед
+    // каталог ([refreshCatalogAfterLogin]) ачаалж байгаа тул товчны ачааллыг дэлгэц өөрөө удирдана.
+    _startCountdownTimer(loginProvider);
   }
 
   void _startCountdownTimer(MobileUserLoginProvider loginProvider) {
@@ -236,7 +243,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    // When identifier is "remembered", only validate password (and server url).
+    // When identifier is "remembered", only validate password.
     if (_hideIdentifierField) {
       final pwd = _passwordController.text.trim();
       if (pwd.isEmpty || pwd.length < 6) {
@@ -287,7 +294,7 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Server URL тохируулахад алдаа: $e'),
+            content: Text('Серверт холбогдох тохиргоонд алдаа: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -302,91 +309,82 @@ class _LoginScreenState extends State<LoginScreen> {
       authProvider: authProvider,
     );
 
-    setState(() {
-      _isLoading = false;
-    });
+    if (!mounted) return;
 
-    if (mounted) {
-      if (success) {
-        await loginProvider.applyRememberMe(_rememberMe);
-        final prefs = await SharedPreferences.getInstance();
-        if (_rememberMe && identifier.isNotEmpty) {
-          await prefs.setString('last_login_identifier', identifier);
-        } else {
-          await prefs.remove('last_login_identifier');
+    if (!success) {
+      setState(() => _isLoading = false);
+      final errorMessage = loginProvider.error ??
+          'Нэвтрэх үед алдаа гарлаа. Дахин оролдоно уу.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
+    // Амжиттай: API нэвтрэлт дууссан ч каталог/шилжилт хүртэл ачааллыг үргэлжлүүлнэ.
+    try {
+      await loginProvider.applyRememberMe(_rememberMe);
+      final prefs = await SharedPreferences.getInstance();
+      if (_rememberMe && identifier.isNotEmpty) {
+        await prefs.setString('last_login_identifier', identifier);
+      } else {
+        await prefs.remove('last_login_identifier');
+      }
+      await _loadRememberAndBiometricPrefs();
+
+      try {
+        final warehouseProvider =
+            Provider.of<WarehouseProvider>(context, listen: false);
+        final shopProvider = Provider.of<ShopProvider>(context, listen: false);
+        final productProvider =
+            Provider.of<ProductProvider>(context, listen: false);
+
+        await warehouseProvider.connectWithExistingToken(
+          authProvider: authProvider,
+          fetchProfile: false,
+        );
+
+        await warehouseProvider.refreshCatalogAfterLogin();
+
+        shopProvider.setShops(warehouseProvider.shops);
+        productProvider.setProducts(warehouseProvider.products);
+
+        if (kDebugMode) {
+          debugPrint('✅ WarehouseProvider connected with mobile user token');
+          debugPrint('   Mobile user ID: ${loginProvider.user?.id}');
+          debugPrint(
+              '   Shops (бүртгэлтэй дэлгүүр): ${warehouseProvider.shops.length}');
+          debugPrint('   Products: ${warehouseProvider.products.length}');
         }
-        // Re-check token presence for biometric button visibility
-        await _loadRememberAndBiometricPrefs();
+      } catch (e) {
+        debugPrint('Warehouse connection failed: $e');
+      }
 
-        // Connect WarehouseProvider using the SAME token from MobileUserLoginProvider
-        // (shared WarehouseWebBridge — no double login API call needed)
-        try {
-          final warehouseProvider =
-              Provider.of<WarehouseProvider>(context, listen: false);
-          final shopProvider =
-              Provider.of<ShopProvider>(context, listen: false);
-          final productProvider =
-              Provider.of<ProductProvider>(context, listen: false);
-
-          await warehouseProvider.connectWithExistingToken(
-            authProvider: authProvider,
-          );
-
-          // Fetch products and shops from warehouse backend
-          // Backend returns only the shops assigned to the logged-in user (no mock data)
-          await warehouseProvider.refreshProducts();
-          await warehouseProvider.refreshShops(authProvider: authProvider);
-
-          // Sync to ShopProvider & ProductProvider so all screens see real data
-          shopProvider.setShops(warehouseProvider.shops);
-          productProvider.setProducts(warehouseProvider.products);
-
-          if (kDebugMode) {
-            debugPrint('✅ WarehouseProvider connected with mobile user token');
-            debugPrint('   Mobile user ID: ${loginProvider.user?.id}');
-            debugPrint(
-                '   Shops (бүртгэлтэй дэлгүүр): ${warehouseProvider.shops.length}');
-            debugPrint('   Products: ${warehouseProvider.products.length}');
-          }
-        } catch (e) {
-          // Continue even if warehouse connection fails
-          debugPrint('Warehouse connection failed: $e');
-        }
-
-        // Login succeeded -> set agent_id & start location tracking (location → backend → Weve site)
-        // Avoid auto-prompt on web unless explicitly desired.
-        if (!kIsWeb) {
-          final locationProvider =
-              Provider.of<LocationProvider>(context, listen: false);
-          final agentId = loginProvider.user?.id ?? authProvider.user?.id;
-          if (agentId != null) {
-            final agentIdInt = int.tryParse(agentId);
-            if (agentIdInt != null) {
-              await locationProvider.setAgentId(agentIdInt);
-            }
+      if (!kIsWeb) {
+        final locationProvider =
+            Provider.of<LocationProvider>(context, listen: false);
+        final agentId = loginProvider.user?.id ?? authProvider.user?.id;
+        final agentIdInt = int.tryParse(agentId ?? '');
+        unawaited(() async {
+          if (agentIdInt != null) {
+            await locationProvider.setAgentId(agentIdInt);
           }
           await locationProvider.startTracking();
-        }
-
-        final role = authProvider.userRole;
-        if (role == 'order') {
-          context.go('/order-screen');
-        } else {
-          // Non-order roles: go to dashboard first
-          context.go('/sales-dashboard');
-        }
-      } else {
-        // Show error from loginProvider
-        final errorMessage = loginProvider.error ??
-            'Нэвтрэх үед алдаа гарлаа. Дахин оролдоно уу.';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMessage),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
-          ),
-        );
+        }());
       }
+
+      final role = authProvider.userRole;
+      if (role == 'order') {
+        context.go('/order-screen');
+      } else {
+        context.go('/sales-dashboard');
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -572,34 +570,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 20),
 
-                          // Server URL: production дээр нуусан.
-                          // (Хадгалсан утга / анхдагч утга нь _applyLoginServerUrl() дээр үргэлж ашиглагдана.)
-                          // Username "Намайг сана" идэвхтэй (identifier нуусан) үед Server URL огт харагдахгүй.
-                          if (kDebugMode && !_hideIdentifierField) ...[
-                            TextFormField(
-                              controller: _serverUrlController,
-                              keyboardType: TextInputType.url,
-                              decoration: InputDecoration(
-                                labelText: 'Server URL (debug)',
-                                hintText: 'http://192.168.1.5:3000',
-                                helperText:
-                                    'Жишээ: LAN эсвэл порт 3000. Анхдагч: ${ApiConfig.defaultBackendServerUrl}',
-                                helperMaxLines: 2,
-                                prefixIcon: const Icon(Icons.dns_outlined),
-                              ),
-                              validator: (value) {
-                                final v = value?.trim() ?? '';
-                                if (v.isEmpty) return null;
-                                final lower = v.toLowerCase();
-                                if (!lower.startsWith('http://') &&
-                                    !lower.startsWith('https://')) {
-                                  return 'http:// эсвэл https:// ээр эхэлнэ үү';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                          ],
+                          // Server URL UI-аас нууна; [SharedPreferences] + [ApiConfig] нь
+                          // [_loadSavedServerUrl] / [_applyLoginServerUrl]-ээр үргэлж ашиглагдана.
 
                           // Remember me + Biometric
                           Row(

@@ -25,6 +25,7 @@ class OrdersScreen extends StatefulWidget {
 
 class _OrdersScreenState extends State<OrdersScreen> {
   DateTime _selectedDay = DateUtils.dateOnly(DateTime.now());
+  bool _didInitSelectedDayByRole = false;
 
   /// Нэвтрэлтийн `user.id`-аас ялгаатай Agent тоон ID (профайл/логинд хадгалагдсан).
   int? _prefsAgentId;
@@ -40,7 +41,29 @@ class _OrdersScreenState extends State<OrdersScreen> {
   /// deliveryDate ихэвчлэн «хүргэх өдөр» (+1) тул түүгээр шүүвэл өнөөдөр
   /// орсон захиалга маргаашийн өдөрт орж харагдах алдаа гардаг.
   DateTime _orderPlacedCalendarDay(Order o) {
-    return DateUtils.dateOnly(o.orderDate);
+    // Backend orderDate ихэвчлэн UTC timestamp (Z) байдаг.
+    // UI дээр хэрэглэгч local хуанлийн өдрөөр (Монгол цаг) харна.
+    // Тиймээс UTC ирсэн бол local руу хөрвүүлээд local өдрөөр нь шүүнэ.
+    final local = o.orderDate.isUtc ? o.orderDate.toLocal() : o.orderDate;
+    return DateUtils.dateOnly(local);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didInitSelectedDayByRole) return;
+    _didInitSelectedDayByRole = true;
+
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final role = auth.userRole;
+    if (isManagerRole(role)) {
+      _selectedDay = DateUtils.dateOnly(DateTime.now());
+      return;
+    }
+
+    final now = DateTime.now();
+    final addDays = now.weekday == DateTime.saturday ? 2 : 1;
+    _selectedDay = DateUtils.dateOnly(now.add(Duration(days: addDays)));
   }
 
   void _rebuildPickList(List<Order> dayOrders) {
@@ -857,7 +880,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                     ),
                                   ),
                                   Text(
-                                    (order.deliveryDate ?? order.orderDate)
+                                    // Show **order created day** (not delivery day) to avoid
+                                    // "today's order appears as tomorrow" confusion.
+                                    (order.orderDate.isUtc
+                                            ? order.orderDate.toLocal()
+                                            : order.orderDate)
                                         .toString()
                                         .split(' ')[0],
                                     style: TextStyle(
@@ -865,6 +892,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                       color: Colors.grey[600],
                                     ),
                                   ),
+                                  if (order.deliveryDate != null &&
+                                      DateUtils.dateOnly(order.deliveryDate!) !=
+                                          DateUtils.dateOnly(order.orderDate))
+                                    Text(
+                                      'Хүргэлт: ${order.deliveryDate.toString().split(' ')[0]}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey[600],
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                 ],
                               ),
                             ],

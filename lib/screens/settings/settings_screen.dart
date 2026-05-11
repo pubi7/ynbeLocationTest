@@ -12,7 +12,6 @@ import '../../providers/order_provider.dart';
 import '../../providers/product_provider.dart';
 import '../../providers/shop_provider.dart';
 import '../../providers/warehouse_provider.dart';
-import '../../config/api_config.dart';
 import '../../widgets/go_pop_scope.dart';
 import '../../widgets/hamburger_menu.dart';
 import '../../services/bluetooth_printer_service.dart';
@@ -33,10 +32,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const _profileImagePathKey = 'profile_image_path';
   String? _profileImagePath;
 
-  // Warehouse web connection
-  static const _warehouseApiBaseUrlKey = 'warehouse_api_base_url';
-  final _warehouseApiBaseUrlController =
-      TextEditingController(text: ApiConfig.defaultBackendServerUrl);
+  // Warehouse web connection (server URL UI-аас нуугдсан — prefs/нэвтрэх урсгал)
   final _warehouseEmailController =
       TextEditingController(text: 'agent@oasis.mn');
   final _warehousePasswordController = TextEditingController(text: 'agent123');
@@ -44,7 +40,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadWarehouseApiBaseUrl();
     _loadProfileImagePath();
     // Refresh profile when screen loads if connected
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -68,26 +63,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    _warehouseApiBaseUrlController.dispose();
     _warehouseEmailController.dispose();
     _warehousePasswordController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadWarehouseApiBaseUrl() async {
-    final prefs = await SharedPreferences.getInstance();
-    final v = prefs.getString(_warehouseApiBaseUrlKey);
-    if (!mounted) return;
-    if (v != null && v.trim().isNotEmpty) {
-      setState(() {
-        _warehouseApiBaseUrlController.text = v.trim();
-      });
-    }
-  }
-
-  Future<void> _saveWarehouseApiBaseUrl(String value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_warehouseApiBaseUrlKey, value.trim());
   }
 
   Future<void> _loadProfileImagePath() async {
@@ -247,7 +225,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                           subtitle: Text(
-                            'API: ${warehouseProvider.apiBaseUrl}\n'
                             'Products: ${productProvider.products.length} | Shops: ${shopProvider.shops.length}',
                           ),
                           trailing: warehouseProvider.connected
@@ -264,93 +241,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               : null,
                         ),
                         if (!warehouseProvider.connected) ...[
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: Column(
-                              children: [
-                                TextField(
-                                  controller: _warehouseApiBaseUrlController,
-                                  decoration: InputDecoration(
-                                    labelText: 'Server URL',
-                                    helperText:
-                                        'Локал warehouse-service: порт 3000. Эмулятор: ${ApiConfig.localWarehouseUrlAndroidEmulator}. Default: ${ApiConfig.defaultBackendServerUrl}.',
-                                    helperMaxLines: 3,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    ActionChip(
-                                      label: const Text('Локал эмулятор'),
-                                      onPressed: warehouseProvider.isLoading
-                                          ? null
-                                          : () async {
-                                              const u = ApiConfig
-                                                  .localWarehouseUrlAndroidEmulator;
-                                              setState(() =>
-                                                  _warehouseApiBaseUrlController
-                                                      .text = u);
-                                              await _saveWarehouseApiBaseUrl(u);
-                                              await warehouseProvider
-                                                  .updateApiBaseUrl(u);
-                                            },
-                                    ),
-                                    ActionChip(
-                                      label: const Text('Локал 127.0.0.1'),
-                                      onPressed: warehouseProvider.isLoading
-                                          ? null
-                                          : () async {
-                                              const u = ApiConfig
-                                                  .localWarehouseUrlLoopback;
-                                              setState(() =>
-                                                  _warehouseApiBaseUrlController
-                                                      .text = u);
-                                              await _saveWarehouseApiBaseUrl(u);
-                                              await warehouseProvider
-                                                  .updateApiBaseUrl(u);
-                                            },
-                                    ),
-                                    ActionChip(
-                                      label: const Text('Production'),
-                                      onPressed: warehouseProvider.isLoading
-                                          ? null
-                                          : () async {
-                                              final u = ApiConfig
-                                                  .productionBackendServerUrl;
-                                              setState(() =>
-                                                  _warehouseApiBaseUrlController
-                                                      .text = u);
-                                              await _saveWarehouseApiBaseUrl(u);
-                                              await warehouseProvider
-                                                  .updateApiBaseUrl(u);
-                                            },
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: OutlinedButton(
-                                    onPressed: warehouseProvider.isLoading
-                                        ? null
-                                        : () async {
-                                            final v =
-                                                _warehouseApiBaseUrlController
-                                                    .text
-                                                    .trim();
-                                            await _saveWarehouseApiBaseUrl(v);
-                                            await warehouseProvider
-                                                .updateApiBaseUrl(v);
-                                          },
-                                    child: const Text('Save Server URL'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
                           if ((warehouseProvider.error ?? '').isNotEmpty) ...[
                             Padding(
                               padding:

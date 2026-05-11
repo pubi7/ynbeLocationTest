@@ -57,6 +57,16 @@ class ApiConfig {
     defaultValue: false,
   );
 
+  /// `false` (анхдагч): апп `SharedPreferences`-ийн `warehouse_api_base_url`-ийг **үл тоож**,
+  /// зөвхөн [backendServerUrl] / [warehouseApiBaseUrl] (production эсвэл dart-define)-ийг ашиглана —
+  /// мобайлаас серверийн хаяг **өөрчлөгдөхгүй**.
+  ///
+  /// Локал / staging-д prefs-ээр солих: `--dart-define=ALLOW_WAREHOUSE_URL_OVERRIDE=true`
+  static const bool allowWarehouseUrlOverride = bool.fromEnvironment(
+    'ALLOW_WAREHOUSE_URL_OVERRIDE',
+    defaultValue: false,
+  );
+
   /// Тест backend суурь (host only, `/api` хасна).
   ///
   /// Анхдагч: локал `warehouse-service` (`npm run dev`, порт 3000).

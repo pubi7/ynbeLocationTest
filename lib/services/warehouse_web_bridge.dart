@@ -7,8 +7,8 @@ import 'warehouse_tls_adapter_stub.dart'
     if (dart.library.io) 'warehouse_tls_adapter_io.dart' as warehouse_tls_adapter;
 import '../models/product_model.dart';
 import '../models/shop_model.dart';
+import '../utils/hymdral.dart';
 import '../utils/product_active_parsing.dart';
-import '../utils/promotion_pricing_utils.dart';
 import '../utils/warehouse_agent_shop_identity_one_file.dart';
 
 /// Native дээр ApiConfig-оос base URL ирэхгүй үед Dio-д оруулах түр placeholder (.invalid DNS).
@@ -82,13 +82,8 @@ List<Map<String, dynamic>> _extractProductMaps(List<dynamic> raw) {
           ? (p['basePrice'] as num).toDouble()
           : (p['basePrice']?.toString()),
       // Optional Weve/Backend campaign fields (if backend provides)
-      'discountPercent': (p['discountPercent'] ??
-              p['discount'] ??
-              p['campaignDiscountPercent'])
-          ?.toString(),
-      'promotionText':
-          (p['promotionText'] ?? p['promotion'] ?? p['campaignTitle'])
-              ?.toString(),
+      'discountPercent': serverProductDiscountPercentToString(p),
+      'promotionText': serverProductPromotionTextToString(p),
       'netWeight': p['netWeight']?.toString(),
       'grossWeight': p['grossWeight']?.toString(),
       // НӨАТ-гүй үнэ эсэх (backend талбарууд)
@@ -307,6 +302,9 @@ class WarehouseWebBridge {
   }
 
   Future<String?> loadApiBaseUrl() async {
+    if (!ApiConfig.allowWarehouseUrlOverride) {
+      return _normalizeApiBaseUrl(ApiConfig.backendServerUrl);
+    }
     final prefs = await SharedPreferences.getInstance();
     final v = prefs.getString(_prefsApiBaseUrlKey);
     if (v == null || v.trim().isEmpty) return null;
@@ -314,6 +312,9 @@ class WarehouseWebBridge {
   }
 
   Future<void> saveApiBaseUrl(String apiBaseUrl) async {
+    if (!ApiConfig.allowWarehouseUrlOverride) {
+      return;
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefsApiBaseUrlKey, apiBaseUrl.trim());
   }
@@ -896,13 +897,9 @@ class WarehouseWebBridge {
     final excludesVat = _readPriceExcludesVat(p);
     final price = _extractPrimaryPrice(p);
 
-    final discountPercent =
-        int.tryParse((p['discountPercent'] ?? '').toString());
-    final rawPromo = (p['promotionText'] ?? '').toString().trim();
-    final promotionText = PromotionPricingUtils.mergeCatalogPromotionText(
-      name,
-      rawPromo.isEmpty ? null : rawPromo,
-    );
+    final discountPercent = catalogMapDiscountPercent(p);
+    final promotionText =
+        catalogMapMergedPromotionText(catalogName: name, p: p);
 
     final byType = p['pricesByCustomerType'] as Map<int, double>?;
     return Product(
@@ -1257,6 +1254,7 @@ class WarehouseWebBridge {
   ///   orderType?: 'Market' | 'Store',
   ///   paymentMethod?: 'Cash' | 'Credit' | 'BankTransfer' | 'Sales' | 'Padan',
   ///   userWeveToken?: string  // Optional: Weve authentication token from logged-in user
+  ///   orderAcceptanceDate?: 'YYYY-MM-DD' // Локал «авсан өдөр»; прокси нь deliveryDate-ийг role-той тооцно
   /// }
   Future<Map<String, dynamic>> createOrder({
     required int customerId,
@@ -1265,6 +1263,8 @@ class WarehouseWebBridge {
     String? paymentMethod,
     String? notes,
     String? deliveryDate,
+    /// Борлуулалтын дэлгэцийн **өнөөдрийн локал өдөр** (прокси `deliveryDate`-д суурь болгоно).
+    String? orderAcceptanceDate,
     int? creditTermDays,
     String? userWeveToken, // Weve token from logged-in user
     bool allowInsufficientStock =
@@ -1277,6 +1277,9 @@ class WarehouseWebBridge {
       if (paymentMethod != null) 'paymentMethod': paymentMethod,
       if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
       if (deliveryDate != null) 'deliveryDate': deliveryDate,
+      if (orderAcceptanceDate != null &&
+          orderAcceptanceDate.trim().isNotEmpty)
+        'orderAcceptanceDate': orderAcceptanceDate.trim(),
       if (creditTermDays != null) 'creditTermDays': creditTermDays,
       if (userWeveToken != null)
         'userWeveToken': userWeveToken, // Pass user's Weve token

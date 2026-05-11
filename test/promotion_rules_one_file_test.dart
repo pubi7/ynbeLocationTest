@@ -98,6 +98,35 @@ void main() {
       );
     });
 
+    test('decide: cartWidePaidPiecesTotal — сагсны tier текстэн bulk-аас доошгүй', () {
+      final d = PromotionPricingUtils.decide(
+        paidPieces: 10,
+        baseUnitPrice: 1000,
+        apply: true,
+        promotionText: '10ш 10%',
+        catalogProductName: 'X',
+        cartWidePaidPiecesTotal: 60,
+      );
+      expect(d.appliedDiscountPercent, 10);
+    });
+
+    test('decide: 1+1 мөрт cartWide tier нэгжийн хувьд давхардахгүй', () {
+      final d = PromotionPricingUtils.decide(
+        paidPieces: 1,
+        baseUnitPrice: 1000,
+        apply: true,
+        promotionText: '1+1',
+        cartWidePaidPiecesTotal: 100,
+      );
+      expect(d.freePieces, 1);
+      expect(d.appliedDiscountPercent, 0);
+    });
+
+    test('parseBulkDiscount: BOGO текст bulk биш', () {
+      expect(PromotionPricingUtils.parseBulkDiscount('1+2 үнэгүй'), isNull);
+      expect(PromotionPricingUtils.parseBulkDiscount('10+15 үнэгүй'), isNull);
+    });
+
     test('олон ширхэгийн tier: 50→3%, 100→5%; 49-оос доош 0%', () {
       expect(
         PromotionPricingUtils.cartPaidPiecesBulkDiscountPercent(50),
@@ -202,20 +231,20 @@ void main() {
   });
 
   group('mergeCatalogPromotionText — Чикен spicy соус 2.1кг', () {
-    test('API promo хоосон бол 1+1', () {
+    test('API promo хоосон бол null (1+1 автоматаар оноохгүй)', () {
       expect(
         PromotionPricingUtils.mergeCatalogPromotionText(
           'Чикен spicy соус 2.1кг',
           null,
         ),
-        '1+1',
+        isNull,
       );
     });
 
-    test('Нэр англи + 1 төлөх → үнэгүй 1', () {
+    test('Нэр англи + API 1+1 → төлөх 1 үед үнэгүй 1', () {
       final promo = PromotionPricingUtils.mergeCatalogPromotionText(
         'Chicken spicy соус 2.1kg',
-        null,
+        '1+1',
       );
       final d = PromotionPricingUtils.decide(
         paidPieces: 1,
@@ -239,30 +268,24 @@ void main() {
     });
   });
 
-  group('isLineOnlyPieceBulkTierProduct — Дашида / Сахар бор 1кг', () {
-    test('дашида saebom 1кг', () {
+  group('Дашида / Сахар бор 1кг — мөрийн 50+/100+ tier хасагдсан', () {
+    test('mergeCatalog: tier-текстийг SKU дээр цэвэрлэнэ', () {
       expect(
-        PromotionPricingUtils.isLineOnlyPieceBulkTierProduct(
+        PromotionPricingUtils.mergeCatalogPromotionText(
+          'Сахар бор 1кг',
+          '50ш+ 3%, 100ш+ 5%',
+        ),
+        isNull,
+      );
+      expect(
+        PromotionPricingUtils.mergeCatalogPromotionText(
           'Дашида saebom 1кг',
+          '50ш+ 3%, бусад текст',
         ),
-        isTrue,
+        'бусад текст',
       );
     });
-    test('дашида saehan 1кг', () {
-      expect(
-        PromotionPricingUtils.isLineOnlyPieceBulkTierProduct(
-          'Дашида saehan 1кг',
-        ),
-        isTrue,
-      );
-    });
-    test('сахар бор 1кг', () {
-      expect(
-        PromotionPricingUtils.isLineOnlyPieceBulkTierProduct('Сахар бор 1кг'),
-        isTrue,
-      );
-    });
-    test('decide: төлөх 60 → 3%, 100 → 5%', () {
+    test('decide: төлөх 60/100 — SKU tier текстгүй бол 0%', () {
       final d60 = PromotionPricingUtils.decide(
         paidPieces: 60,
         baseUnitPrice: 10000,
@@ -270,7 +293,7 @@ void main() {
         promotionText: null,
         catalogProductName: 'Сахар бор 1кг',
       );
-      expect(d60.appliedDiscountPercent, 3);
+      expect(d60.appliedDiscountPercent, 0);
       final d100 = PromotionPricingUtils.decide(
         paidPieces: 100,
         baseUnitPrice: 10000,
@@ -278,15 +301,18 @@ void main() {
         promotionText: null,
         catalogProductName: 'Дашида saebom 1кг',
       );
-      expect(d100.appliedDiscountPercent, 5);
+      expect(d100.appliedDiscountPercent, 0);
     });
-    test('сагсны eligible-д line-only мөр орохгүй', () {
+    test('сагсны eligible: tier-ийг merge хийсэн мөр орохгүй', () {
       final sugar = SalesItem(
         productId: '1',
         productName: 'Сахар бор 1кг',
         price: 100,
         quantity: 60,
-        promotionText: '50ш+ 3%, 100ш+ 5%',
+        promotionText: PromotionPricingUtils.mergeCatalogPromotionText(
+          'Сахар бор 1кг',
+          '50ш+ 3%, 100ш+ 5%',
+        ),
       );
       final promo = SalesItem(
         productId: '2',
@@ -312,13 +338,19 @@ void main() {
         promotionText: '1+1',
       );
       expect(PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(item), 1);
+      final r = PromotionPricingUtils.resolveLinePromotion(item);
       expect(
-        PromotionPricingUtils.payableLineTotalInCart(item, [item]),
+        PromotionPricingUtils.payableLineTotalInCart(
+          item,
+          cartWidePaidPiecesTotal: r.paidPieces,
+          effectivePaidPieces: r.paidPieces,
+          isBuyOneGetOne: r.isBogo,
+        ),
         24990.0,
       );
     });
 
-    test('API promo хоосон ч нэрээр 1+1 — төлөх 1 (илгээлтийн 49980 алдааг засна)', () {
+    test('API promo хоосон — 1+1 автоматаар үгүй, 2 ширхэг бүгд төлөх', () {
       final item = SalesItem(
         productId: '1',
         productName: 'Чикен spicy соус 2.1кг',
@@ -326,14 +358,20 @@ void main() {
         quantity: 2,
         promotionText: null,
       );
-      expect(PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(item), 1);
+      expect(PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(item), 2);
+      final r2 = PromotionPricingUtils.resolveLinePromotion(item);
       expect(
-        PromotionPricingUtils.payableLineTotalInCart(item, [item]),
-        24990.0,
+        PromotionPricingUtils.payableLineTotalInCart(
+          item,
+          cartWidePaidPiecesTotal: r2.paidPieces,
+          effectivePaidPieces: r2.paidPieces,
+          isBuyOneGetOne: r2.isBogo,
+        ),
+        49980.0,
       );
     });
 
-    test('«спайси» кирилл — API promo хоосон, төлөх 1', () {
+    test('«спайси» кирилл — API promo хоосон, 1+1 merge үгүй', () {
       final item = SalesItem(
         productId: '1',
         productName: 'Чикен спайси соус 2.1кг',
@@ -346,9 +384,9 @@ void main() {
           item.productName,
           null,
         ),
-        '1+1',
+        isNull,
       );
-      expect(PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(item), 1);
+      expect(PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(item), 2);
     });
   });
 
@@ -366,8 +404,15 @@ void main() {
         cart,
         noteMultiplier: 1.0,
       );
+      final r0 = PromotionPricingUtils.resolveLinePromotion(cart.first);
+      final tierOne = r0.paidPieces;
       final expected = PromotionPricingUtils.roundMoney2(
-        PromotionPricingUtils.payableLineTotalInCart(cart.first, cart),
+        PromotionPricingUtils.payableLineTotalInCart(
+          cart.first,
+          cartWidePaidPiecesTotal: tierOne,
+          effectivePaidPieces: r0.paidPieces,
+          isBuyOneGetOne: r0.isBogo,
+        ),
       );
       expect(priced.single.finalLineTotal, expected);
       expect(priced.single.finalUnitPrice, isNotNull);

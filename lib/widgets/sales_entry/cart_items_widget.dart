@@ -112,6 +112,8 @@ class _CartItemsWidgetState extends State<CartItemsWidget> {
       context: context,
       builder: (ctx) => _EditCartItemDialog(
         item: item,
+        cartItems: widget.items,
+        itemIndex: index,
         supportsBox: supportsBox,
         unitsPerBox: upb,
         money: _money,
@@ -195,6 +197,13 @@ class _CartItemsWidgetState extends State<CartItemsWidget> {
             borderRadius: BorderRadius.circular(10),
             child: LayoutBuilder(
               builder: (context, constraints) {
+                final cartResolved = widget.items
+                    .map(PromotionPricingUtils.resolveLinePromotion)
+                    .toList();
+                final cartTierPaidPieces =
+                    cartResolved.map((r) => r.paidPieces).toList();
+                final cartWideTierBase =
+                    cartTierPaidPieces.fold<int>(0, (a, b) => a + b);
                 // Нарийн дэлгэц: хүснэгийг хэвтээ гүйлгэнэ; багана «1…» болж багтахгүй болохоос сэргийлнэ.
                 final minTableW = constraints.maxWidth < 420
                     ? 420.0
@@ -230,6 +239,8 @@ class _CartItemsWidgetState extends State<CartItemsWidget> {
                   final item = widget.items[index];
                   final qtyLabel = _quantityCellLabel(item);
                   final bilgeLabel = _bilgePiecesLabel(item);
+                  final linePaidPieces = cartTierPaidPieces[index];
+                  final lineIsBogo = cartResolved[index].isBogo;
 
                   final selected = _selectedIndex == index;
                   final stock = widget.stockByProductId != null
@@ -240,7 +251,8 @@ class _CartItemsWidgetState extends State<CartItemsWidget> {
                   return TableRow(
                     decoration: BoxDecoration(
                       color: selected
-                          ? const Color(0xFFFEF9C3) // yellow-ish highlight
+                          // Avoid yellow highlight (can look like a "star" behind items on some devices).
+                          ? const Color(0xFFEFF6FF) // soft blue highlight
                           : (index.isEven
                               ? const Color(0xFFF8FAFC)
                               : Colors.white),
@@ -433,7 +445,12 @@ class _CartItemsWidgetState extends State<CartItemsWidget> {
                           ),
                           child: _cartTableMoneyCell(
                             item.paidQuantity > 0
-                                ? '${_money.format((item.finalLineTotal ?? PromotionPricingUtils.payableLineTotalInCart(item, widget.items)).round())} ₮'
+                                ? '${_money.format((item.finalLineTotal ?? PromotionPricingUtils.payableLineTotalInCart(
+                                      item,
+                                      cartWidePaidPiecesTotal: cartWideTierBase,
+                                      effectivePaidPieces: linePaidPieces,
+                                      isBuyOneGetOne: lineIsBogo,
+                                    )).round())} ₮'
                                 : '-',
                             const TextStyle(
                               fontSize: 13,
@@ -576,6 +593,8 @@ class _CartItemsWidgetState extends State<CartItemsWidget> {
 class _EditCartItemDialog extends StatefulWidget {
   const _EditCartItemDialog({
     required this.item,
+    required this.cartItems,
+    required this.itemIndex,
     required this.supportsBox,
     required this.unitsPerBox,
     required this.money,
@@ -584,6 +603,8 @@ class _EditCartItemDialog extends StatefulWidget {
   });
 
   final SalesItem item;
+  final List<SalesItem> cartItems;
+  final int itemIndex;
   final bool supportsBox;
   final int unitsPerBox;
   final NumberFormat money;
@@ -762,16 +783,36 @@ class _EditCartItemDialogState extends State<_EditCartItemDialog> {
                 PromotionPricingUtils.parseBuyFree(promoSource) != null;
 
             final SalesItem updated;
-            int? discountOverride;
 
             if (applyBuyFree) {
+              final mergedPromo = PromotionPricingUtils.mergeCatalogPromotionText(
+                item.productName,
+                promoSource.isEmpty ? null : promoSource,
+              );
+              final cart = List<SalesItem>.from(widget.cartItems);
+              cart[widget.itemIndex] = SalesItem(
+                productId: item.productId,
+                productName: item.productName,
+                price: price,
+                quantity: paidPieces,
+                orderedUnit: orderedUnit,
+                orderedQuantity: orderedQty,
+                unitsPerBox: widget.unitsPerBox,
+                freeQuantity: 0,
+                unitPriceExcludesVat: item.unitPriceExcludesVat,
+                discountPercent: item.discountPercent,
+                promotionText: mergedPromo,
+              );
+              final tierBase =
+                  PromotionPricingUtils.cartWideBillablePaidPiecesSum(cart);
               final d = PromotionPricingUtils.decide(
                 paidPieces: paidPieces,
                 baseUnitPrice: price,
-                promotionText: promoSource,
+                promotionText: promoSource.isEmpty ? null : promoSource,
                 baseDiscountPercent: item.discountPercent,
                 apply: true,
                 catalogProductName: item.productName,
+                cartWidePaidPiecesTotal: tierBase,
               );
               updated = SalesItem(
                 productId: item.productId,
@@ -786,38 +827,16 @@ class _EditCartItemDialogState extends State<_EditCartItemDialog> {
                 discountPercent: item.discountPercent,
                 promotionText: promoSource,
               );
-            } else if (PromotionPricingUtils.isLineOnlyPieceBulkTierProduct(
-                item.productName)) {
-              final d = PromotionPricingUtils.decide(
-                paidPieces: paidPieces,
-                baseUnitPrice: price,
-                promotionText:
-                    promoSource.isEmpty ? null : promoSource,
-                baseDiscountPercent: item.discountPercent,
-                apply: true,
-                catalogProductName: item.productName,
-              );
-              discountOverride =
-                  d.appliedDiscountPercent > 0 ? d.appliedDiscountPercent : null;
-              updated = SalesItem(
-                productId: item.productId,
-                productName: item.productName,
-                price: d.unitPriceAfterDiscount,
-                quantity: paidPieces,
-                orderedUnit: orderedUnit,
-                orderedQuantity: orderedQty,
-                unitsPerBox: widget.unitsPerBox,
-                freeQuantity: 0,
-                unitPriceExcludesVat: item.unitPriceExcludesVat,
-                discountPercent: discountOverride ?? item.discountPercent,
-                promotionText: '50ш+ 3%, 100ш+ 5%',
-              );
             } else {
-              final outPromo = (item.promotionText?.trim().isNotEmpty ?? false)
+              final rawOut = (item.promotionText?.trim().isNotEmpty ?? false)
                   ? item.promotionText
                   : (product?.promotionText?.trim().isNotEmpty ?? false)
                       ? product!.promotionText
                       : null;
+              final outPromo = PromotionPricingUtils.mergeCatalogPromotionText(
+                item.productName,
+                rawOut,
+              );
               updated = SalesItem(
                 productId: item.productId,
                 productName: item.productName,

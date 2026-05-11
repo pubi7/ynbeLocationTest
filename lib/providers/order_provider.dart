@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import '../models/order_model.dart';
+import '../models/sales_item_model.dart';
 import '../utils/order_schedule_utils.dart';
 
 class OrderProvider extends ChangeNotifier {
@@ -37,6 +38,80 @@ class OrderProvider extends ChangeNotifier {
       }
     }
     return e.toString().split('\n').first;
+  }
+
+  /// Backend (warehouse-service) нь заримдаа `orderItems.freeQuantity` / `paidQuantity`
+  /// талбаруудыг буцаадаггүй.
+  ///
+  /// Тийм үед mobile талын сагсны (SalesItem) мэдээллээр тухайн захиалгын мөрүүдийн
+  /// `freeQuantity`-г UI дээр харагдахаар нөхөж өгнө.
+  ///
+  /// Анхааруулга: Энэ нь зөвхөн mobile UI/локал model-д нөлөөлнө; backend-д юу ч засахгүй.
+  void patchOrderFreeQuantitiesFromCart({
+    required String orderId,
+    required List<SalesItem> cart,
+  }) {
+    if (_orders.isEmpty) return;
+
+    final byProductId = <String, SalesItem>{};
+    for (final it in cart) {
+      byProductId[it.productId] = it;
+    }
+
+    var changed = false;
+    final next = _orders.map((o) {
+      if (o.id != orderId) return o;
+
+      final patchedItems = o.items.map((line) {
+        final cartLine = byProductId[line.productId];
+        if (cartLine == null) return line;
+
+        final fq = cartLine.freeQuantity < 0 ? 0 : cartLine.freeQuantity;
+        if (fq <= 0) return line;
+
+        final paidPieces = (cartLine.quantity - fq);
+        final paid = paidPieces < 0 ? 0 : paidPieces;
+        final quantityTotal = paid + fq;
+
+        changed = true;
+        return OrderItem(
+          productId: line.productId,
+          productName: line.productName,
+          quantity: quantityTotal,
+          unitPrice: line.unitPrice,
+          totalPrice: line.unitPrice * paid,
+          unitsPerBox: line.unitsPerBox,
+          orderedUnit: line.orderedUnit,
+          orderedQuantity: line.orderedQuantity,
+          freeQuantity: fq,
+        );
+      }).toList();
+
+      return Order(
+        id: o.id,
+        customerName: o.customerName,
+        customerPhone: o.customerPhone,
+        customerAddress: o.customerAddress,
+        items: patchedItems,
+        totalAmount: o.totalAmount,
+        status: o.status,
+        orderDate: o.orderDate,
+        deliveryDate: o.deliveryDate,
+        notes: o.notes,
+        salespersonId: o.salespersonId,
+        salespersonName: o.salespersonName,
+        ebarimtRegistered: o.ebarimtRegistered,
+        ebarimtBillId: o.ebarimtBillId,
+        ebarimtReturnId: o.ebarimtReturnId,
+        ebarimtLottery: o.ebarimtLottery,
+        ebarimtQrData: o.ebarimtQrData,
+        ebarimtStatus: o.ebarimtStatus,
+      );
+    }).toList();
+
+    if (!changed) return;
+    _orders = next;
+    notifyListeners();
   }
 
   /// Fetch orders from backend API using the authenticated Dio instance

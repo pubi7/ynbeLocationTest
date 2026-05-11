@@ -11,6 +11,7 @@ import '../../models/product_model.dart';
 import '../../services/pos_receipt_service.dart';
 import '../../services/bluetooth_printer_service.dart';
 import '../../utils/role_utils.dart';
+import '../../utils/order_schedule_utils.dart';
 import '../../utils/warehouse_order_backend_submit_one_file.dart';
 import '../../widgets/go_pop_scope.dart';
 import '../../widgets/hamburger_menu.dart';
@@ -165,6 +166,8 @@ class _OrderScreenState extends State<OrderScreen> {
                 items: items,
                 orderType: 'Store',
                 paymentMethod: 'Cash',
+                orderAcceptanceDate:
+                    OrderScheduleUtils.localCalendarDayYyyyMmDd(DateTime.now()),
                 allowInsufficientStock: false,
               ),
             );

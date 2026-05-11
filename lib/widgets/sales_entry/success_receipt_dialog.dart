@@ -135,7 +135,7 @@ class _SuccessReceiptDialogState extends State<SuccessReceiptDialog> {
           'Захиалга сервер руу илгээгдсэнгүй.\n\n'
           'Шалгах:\n'
           '• Нэвтэрсэн эсэх, Warehouse холболт\n'
-          '• Server URL зөв эсэх (бодит утас: PC-ийн Wi‑Fi IP, жишээ 192.168.0.x:3000)\n'
+          '• Сүлжээ, сервер ажиллаж буй эсэх\n'
           '• Backend асаалттай эсэх, интернет / Wi‑Fi\n'
           '• Windows Firewall: TCP 3000 портыг зөвшөөрсөн эсэх',
         );

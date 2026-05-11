@@ -6,6 +6,13 @@ import '../utils/role_utils.dart';
 /// Utilities for order scheduling / calendar-day display rules.
 ///
 /// Goal: keep "which day should this order appear on" logic in one place.
+///
+/// **«Захиалгын өдөр» гэдэг хоёр ялгаатай ойлголт** (урсгалын хувьд):
+/// - **Авсан календарийн өдөр** — борлуулалтын дэлгэцээс `orderAcceptanceDate` (YYYY-MM-DD,
+///   [localCalendarDayYyyyMmDd]) дамжуулж прокси (`server.js`) хүргэлтийн өдрийг тооцоход суурь болгоно.
+/// - **Бүртгэгдсэн цаг** — прокси `POST /api/orders` дээр `orderDate` / `recordedAt` =
+///   хүлээн авсан **яг тэр мөчийн UTC ISO**; жагсаалт дээр ихэвчлэн [effectiveOrderCalendarDay]
+///   (`deliveryDate` эсвэл `orderDate`-ийн өдөр) ашиглана.
 class OrderScheduleUtils {
   /// Base calendar day (midnight) helper.
   ///
@@ -24,6 +31,7 @@ class OrderScheduleUtils {
   static DateTime applyRoleRule(DateTime baseDay, String role) {
     if (isManagerRole(role)) return baseDay;
     if (isAgentRole(role) || isOrderOnlyRole(role)) {
+      // Business rule: "авсан өдөр + 1", харин Бямба өдөр таарвал +2 (Ням руу алгасна).
       final addDays = baseDay.weekday == DateTime.saturday ? 2 : 1;
       return baseDay.add(Duration(days: addDays));
     }
@@ -82,7 +90,7 @@ class OrderScheduleUtils {
   /// Rules:
   /// - If fulfilled (ebarimtRegistered or delivered): show on its orderDate day.
   /// - If backend provides [Order.deliveryDate] (YYYY-MM-DD): use that day.
-  /// - Otherwise: show on [Order.orderDate] day (no extra +1/+2 here).
+  /// - Otherwise: fall back to role-based schedule day (agent / order: +1 day, Sat -> +2).
   static DateTime effectiveOrderCalendarDay(
     Order o, {
     required String role,
@@ -96,10 +104,10 @@ class OrderScheduleUtils {
     final dd = o.deliveryDate;
     if (dd != null) return DateUtils.dateOnly(dd);
 
-    // No backend deliveryDate: use the order's calendar day (same as Orders
-    // screen: deliveryDate ?? orderDate). Mobile createOrder omits deliveryDate;
-    // [scheduledDeliveryDayForRole] remains for other UI if needed.
-    return localOrderDay;
+    // No backend deliveryDate: many environments rely on the proxy/backend to
+    // compute it from orderAcceptanceDate + role. If it's missing, we still want
+    // mobile to show the expected (+1 day) schedule for agent / order-only roles.
+    return applyRoleRule(localOrderDay, role);
   }
 
   static List<Order> ordersForCalendarDay(
@@ -117,8 +125,9 @@ class OrderScheduleUtils {
 
   /// Compute deliveryDate to send to backend, based on role.
   ///
-  /// Default output is `YYYY-MM-DD` (day-only), based on **UTC day base**.
-  /// If you want ISO8601 UTC (timestamp), set [format] to [DeliveryDateFormat.isoUtc].
+  /// Өдрийн суурь: [scheduledDeliveryDayForRole] — анхдагч нь **локал** хуанли
+  /// (`useUtcDayBase: false`). UTC өдөрт шилжүүлэх бол [useUtcDayBase] true.
+  /// ISO timestamp буцаах бол [format] = [DeliveryDateFormat.isoUtc].
   static String? computeDeliveryDateForWeb(
     String role, {
     DateTime? now,
@@ -143,9 +152,9 @@ class OrderScheduleUtils {
 
   /// Role-based delivery day string (e.g. web or flows that must send a day).
   ///
-  /// Mobile sales entry does **not** send `deliveryDate` on create (null); the
-  /// backend order day is the actual order timestamp. Use this only where a
-  /// stored delivery calendar day is still required.
+  /// Мобайл ихэвчлэн `deliveryDate`-ийг илгээхгүй; `orderAcceptanceDate` + JWT role-оор
+  /// прокси (`server.js`) ижил дүрмээр `deliveryDate` тооцно. Шууд өдөр илгээх шаардлагатай
+  /// урсгалд л эндээс ашиглана.
   static String deliveryDateForBackend({
     required String role,
     DateTime? now,

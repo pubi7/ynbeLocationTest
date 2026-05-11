@@ -86,8 +86,15 @@ class WarehouseOrderBackendSubmitOneFile {
 
   /// Худалдааны оролтын сагс (`SalesItem`) → `createOrder` items array.
   ///
-  /// `quantity` болон `paidQuantity` = **төлөх** ширхэг; `freeQuantity` = үнэгүй.
-  /// **Үлдэгдэл хасах:** `totalPiecesForStock` = төлөх + үнэгүй = сагсны нийт физик ширхэг.
+  /// Backend (`warehouse-service`) одоогоор үлдэгдэл хасахдаа `item.quantity`-г ашигладаг.
+  /// Тиймээс mobile → backend дээр:
+  /// - `quantity` = **нийт физик ширхэг** (төлөх + үнэгүй)
+  /// - `paidQuantity` = **төлөх ширхэг** (UI/лог/ирээдүйн нийцтэй байдалд)
+  /// - `freeQuantity` = **үнэгүй ширхэг**
+  ///
+  /// Custom pricing (`priceMode=custom`) үед `unitPrice`-ийг mobile тооцоолсон мөрийн нийт
+  /// (lineTotal)-д тааруулж илгээнэ:
+  /// `unitPrice = lineTotal / quantity(нийт физик)`.
   static List<Map<String, dynamic>> buildItemsFromSalesCart(
     List<SalesItem> selectedItems, {
     required bool applyDiscountFromNotes,
@@ -97,30 +104,40 @@ class WarehouseOrderBackendSubmitOneFile {
         applyDiscountFromNotes ? parsePercentFromNotes(notesTrimmed) : null;
     final noteMultiplier =
         (notePercent != null) ? (1 - (notePercent / 100.0)) : 1.0;
-    return selectedItems.map((item) {
+    final n = selectedItems.length;
+    final resolved = List.generate(
+      n,
+      (i) => PromotionPricingUtils.resolveLinePromotion(selectedItems[i]),
+    );
+    final tierBase =
+        resolved.fold<int>(0, (sum, r) => sum + r.paidPieces);
+    return List.generate(n, (idx) {
+      final item = selectedItems[idx];
       final productId = int.tryParse(item.productId);
       if (productId == null) {
         throw FormatException('Барааны ID буруу байна: ${item.productId}');
       }
-      final paidWire =
-          PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(item);
-      // free <= total - paid (invariant)
+      final paidWire = resolved[idx].paidPieces;
+      // free <= total - paid (invariant). item.quantity = total physical pieces in cart.
       final rawFree = item.quantity - paidWire;
       final freeWire = rawFree <= 0 ? 0 : rawFree;
-      final tierBase =
-          PromotionPricingUtils.cartWideBillablePaidPiecesSum(selectedItems);
+      final totalPiecesForStock = item.quantity;
+      final qtyWire = totalPiecesForStock < 0 ? 0 : totalPiecesForStock;
       final cartBulkMult =
           PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
         item: item,
         eligiblePaidPiecesTotal: tierBase,
+        isBuyOneGetOne: resolved[idx].isBogo,
       );
       // Мөрийн дүнг үргэлж сагсны [payableLineTotalInCart]-аас — finalLineTotal хуучирсан
       // (1+1 төлөх 2 гэж үлдсэн) үед серверт буруу дүн очихоос сэргийлнэ.
       final lineTotal = PromotionPricingUtils.roundMoney2(
         PromotionPricingUtils.payableLineTotalInCart(
           item,
-          selectedItems,
+          cartWidePaidPiecesTotal: tierBase,
           noteMultiplier: noteMultiplier,
+          effectivePaidPieces: paidWire,
+          isBuyOneGetOne: resolved[idx].isBogo,
         ),
       );
       final finU = item.finalUnitPrice;
@@ -144,19 +161,25 @@ class WarehouseOrderBackendSubmitOneFile {
           noteMultiplier != 1.0 ||
           cartBulkMult != 1.0 ||
           item.finalUnitPrice != null;
+      // Backend decrements stock by `quantity`, so send total physical.
+      // To keep payable total correct even when quantity includes free pieces,
+      // send custom unitPrice derived from lineTotal / totalPhysical.
+      final apiUnitForBackend = (shouldCustomPrice && qtyWire > 0)
+          ? PromotionPricingUtils.roundMoney2(lineTotal / qtyWire)
+          : apiUnit;
       return <String, dynamic>{
         'productId': productId,
-        // Сервер `quantity` = зөвхөн төлөх ширхэг; үлдэгдлээс хасах нийт = totalPiecesForStock.
-        'quantity': paidWire,
+        // IMPORTANT: backend uses `quantity` to decrement stock → send total physical pieces.
+        'quantity': qtyWire,
         'paidQuantity': paidWire,
         'freeQuantity': freeWire,
-        'totalPiecesForStock': item.quantity,
-        'unitPrice': apiUnit,
+        'totalPiecesForStock': qtyWire,
+        'unitPrice': apiUnitForBackend,
         // Custom mode үед backend каталогийн үнээр дахин бодохгүй.
         'lineTotal': PromotionPricingUtils.roundMoney2(lineTotal),
         if (shouldCustomPrice) 'priceMode': 'custom',
       };
-    }).toList();
+    });
   }
 
   /// `OrderScreen`-ийн мөрүүд → `createOrder` items (төлөх/үнэгүй + lineTotal).
@@ -172,18 +195,21 @@ class WarehouseOrderBackendSubmitOneFile {
       final lineTotal = PromotionPricingUtils.roundMoney2(
         item.unitPrice * paid,
       );
-      final apiUnit = (paid > 0)
-          ? PromotionPricingUtils.roundMoney2(lineTotal / paid)
+      final qtyWire = item.quantity < 0 ? 0 : item.quantity;
+      final apiUnit = (qtyWire > 0)
+          ? PromotionPricingUtils.roundMoney2(lineTotal / qtyWire)
           : PromotionPricingUtils.roundMoney2(item.unitPrice);
       final maxFree = item.quantity - paid;
       return <String, dynamic>{
         'productId': productId,
-        'quantity': paid,
+        // Backend decrements stock by `quantity` → send total physical pieces.
+        'quantity': qtyWire,
         'paidQuantity': paid,
         'freeQuantity': item.freeQuantity.clamp(0, maxFree < 0 ? 0 : maxFree),
-        'totalPiecesForStock': item.quantity,
+        'totalPiecesForStock': qtyWire,
         'unitPrice': apiUnit,
         'lineTotal': lineTotal,
+        'priceMode': 'custom',
       };
     }).toList();
   }

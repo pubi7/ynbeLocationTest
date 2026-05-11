@@ -122,14 +122,16 @@ class LocationProvider extends ChangeNotifier {
       }
 
       String baseUrl = ApiConfig.backendServerUrl;
-      final savedApi = prefs.getString('warehouse_api_base_url');
-      if (savedApi != null && savedApi.trim().isNotEmpty) {
-        var s = savedApi.trim();
-        if (s.endsWith('/')) s = s.substring(0, s.length - 1);
-        if (s.toLowerCase().endsWith('/api')) {
-          baseUrl = s.substring(0, s.length - 4);
-        } else {
-          baseUrl = s;
+      if (ApiConfig.allowWarehouseUrlOverride) {
+        final savedApi = prefs.getString('warehouse_api_base_url');
+        if (savedApi != null && savedApi.trim().isNotEmpty) {
+          var s = savedApi.trim();
+          if (s.endsWith('/')) s = s.substring(0, s.length - 1);
+          if (s.toLowerCase().endsWith('/api')) {
+            baseUrl = s.substring(0, s.length - 4);
+          } else {
+            baseUrl = s;
+          }
         }
       }
       if (baseUrl.isEmpty) {

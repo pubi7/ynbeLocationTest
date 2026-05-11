@@ -1,5 +1,5 @@
 /// **1+1 / 1+N үнэгүй**, `promotionText`-ийн **bulk %**, **сагсны олон ширхэгийн хөнгөлөлт**
-/// (50+ → 3%, 100+ → 5%) — бүх боломжит хямдрал/урамшууллын тооцооллыг **нэг файлд** төвлөрүүлсэн.
+/// (урамшуулалтай мөрүүдэд 50+ → 3%, 100+ → 5%) — бүх боломжит хямдрал/урамшууллын тооцооллыг **нэг файлд** төвлөрүүлсэн.
 /// **1+1** (`buy=1`,`free=1`) мөр дээр сагсны tier **давхардахгүй** ([cartBulkPriceMultiplierForCartLine] → 1.0).
 ///
 /// Хэрэглээ: [PromotionPricingUtils.decide] (сагс, нэмэх урсгал), [PromotionPricingUtils.parseBuyFree],
@@ -18,36 +18,35 @@ import '../models/sales_item_model.dart';
 /// - Сагсны олон ширхэгийн %: зөвхөн **урамшуулалтай** мөрүүдийн төлөх ширхэгийн нийлбэрээр
 class PromotionPricingUtils {
   /// `1+1`, `1 + 2` гэх мэт — ASCII `+` болон fullwidth `＋`.
-  /// Каталогоос `promotionText` дутуу / буруу ирсэн ч тодорхой бараанд 1+1 үйлчлүүлнэ.
-  /// Жишээ: «Чикен spicy соус 2.1кг» — 1 төлөхөд 1 үнэгүй.
+  /// Каталогийн нэр + API-ийн `promotionText`-ийг нэгтгэхдээ зөвхөн серверээс ирсэн
+  /// текстийг буцаана; хоосон бол null (барааны нэрээр 1+1 **автоматаар** оноохгүй).
+  ///
+  /// Дашида saehan/saebom 1кг, Сахар бор 1кг: өмнө нь апп дээр 50+/100+ **мөрийн** 3%/5%
+  /// байсан; одоо идэвхгүй тул ижил хувийн текстийг эндээс хасна ([_stripLegacyLinePieceBulkTierPhrasesFromPromo]).
   static String? mergeCatalogPromotionText(
     String productName,
     String? apiPromotionText,
   ) {
-    final api = (apiPromotionText ?? '').trim();
-    if (_isChickenSpicySauce21kg(productName)) {
-      if (api.isEmpty) return '1+1';
-      if (parseBuyFree(api) != null) return api;
-      return '$api 1+1';
+    try {
+      var api = (apiPromotionText ?? '').trim();
+      if (api.isEmpty) return null;
+      if (_legacyLinePieceBulkTierSku(productName)) {
+        api = _stripLegacyLinePieceBulkTierPhrasesFromPromo(api).trim();
+        api = api
+            .replaceAll(RegExp(r',\s*,+'), ',')
+            .replaceAll(RegExp(r'^\s*,+\s*|\s*,+\s*$'), '')
+            .trim();
+      }
+      return api.isEmpty ? null : api;
+    } catch (_) {
+      final t = apiPromotionText?.trim();
+      if (t == null || t.isEmpty) return null;
+      return t;
     }
-    return api.isEmpty ? null : api;
   }
 
-  static bool _isChickenSpicySauce21kg(String productName) {
-    final n = productName.toLowerCase();
-    final hasChicken =
-        n.contains('чикен') || n.contains('chicken') || n.contains('тахиан');
-    final hasSauce = n.contains('соус');
-    final hasSpicy =
-        n.contains('spicy') || n.contains('спайси') || n.contains('spайси');
-    final has21 =
-        n.contains('2.1') || n.contains('2,1') || n.contains('2.1кг');
-    return hasChicken && hasSauce && hasSpicy && has21;
-  }
-
-  /// Дашида saebom / saehan 1кг, Сахар бор 1кг: **зөвхөн энэ мөрийн** төлөх ширхэгээр
-  /// 50+ → 3%, 100+ → 5% ([cartPaidPiecesBulkDiscountPercent]). Сагсны нийлбэрийн bulk-д орохгүй.
-  static bool isLineOnlyPieceBulkTierProduct(String productName) {
+  /// Өмнө мөрийн 50+/100+ tier-т зориулсан SKU-ууд (одоо tier **идэвхгүй**).
+  static bool _legacyLinePieceBulkTierSku(String productName) {
     final n = productName.toLowerCase();
     final has1kg = n.contains('1кг') || n.contains('1 кг');
     if (!has1kg) return false;
@@ -57,6 +56,21 @@ class PromotionPricingUtils {
       if (n.contains('saehan')) return true;
     }
     return false;
+  }
+
+  static String _stripLegacyLinePieceBulkTierPhrasesFromPromo(String s) {
+    var t = s;
+    for (final p in const [
+      r'50\s*ш\s*\+\s*[-]?\s*3\s*%',
+      r'100\s*ш\s*\+\s*[-]?\s*5\s*%',
+      r'50ш\+\s*[-]?\s*3\s*%',
+      r'100ш\+\s*[-]?\s*5\s*%',
+      r'50\s*ш\+\s*[-]?\s*3\s*%',
+      r'100\s*ш\+\s*[-]?\s*5\s*%',
+    ]) {
+      t = t.replaceAll(RegExp(p, caseSensitive: false), '');
+    }
+    return t.trim();
   }
 
   /// Хэрэглэгчийн оруулсан **нийт физ ширхэг** (жишээ 1+1-д 2 савлах) → [decide]-ийн
@@ -98,6 +112,8 @@ class PromotionPricingUtils {
     final free = int.tryParse(m.group(2) ?? '');
     if (buy == null || free == null) return null;
     if (buy <= 0 || free <= 0) return null;
+    // "50ш+ 3%" гэх мэтээс buy/free том тоо гарвал BOGO биш — бүх дуудлагаас хамгаална.
+    if (buy > 20 || free > 20 || buy + free > 40) return null;
     return (buy: buy, free: free);
   }
 
@@ -152,45 +168,44 @@ class PromotionPricingUtils {
     return 1.0 - (p / 100.0);
   }
 
-  /// Нэг мөр **1+1** (buy=1, free=1) урамшуулал эсэх — сагсны 50+/100+ tier-ийг энэ мөрт **хэрэглэхгүй**.
-  static bool isBuyOneGetOnePromotionLine(SalesItem item) {
-    if (isLineOnlyPieceBulkTierProduct(item.productName)) return false;
-    final promoForBuyFree = mergeCatalogPromotionText(
+  /// Нэг удаа [mergeCatalogPromotionText] + [parseBuyFree] — төлөх ширхэг ба 1+1 эсэх.
+  static ({int paidPieces, bool isBogo}) resolveLinePromotion(SalesItem item) {
+    final promo = mergeCatalogPromotionText(
       item.productName,
       item.promotionText,
     );
-    final bf = parseBuyFree(promoForBuyFree);
-    if (bf == null) return false;
-    if (bf.buy > 20 || bf.free > 20 || bf.buy + bf.free > 40) return false;
-    return bf.buy == 1 && bf.free == 1;
+    final bf = parseBuyFree(promo);
+    if (bf == null) {
+      return (paidPieces: item.paidQuantity, isBogo: false);
+    }
+    final isBogo = bf.buy == 1 && bf.free == 1;
+    if (item.freeQuantity > 0) {
+      return (paidPieces: item.paidQuantity, isBogo: isBogo);
+    }
+    if (item.quantity <= 0) {
+      return (paidPieces: 0, isBogo: isBogo);
+    }
+    final int paid;
+    if (isBogo) {
+      paid = buyOneGetOnePaidFreeFromQuantity(item.quantity).paid;
+    } else {
+      paid = billablePaidPiecesForBuyFreePhysical(
+        physicalPieces: item.quantity,
+        bf: bf,
+      ).clamp(0, item.quantity);
+    }
+    return (paidPieces: paid, isBogo: isBogo);
+  }
+
+  /// Нэг мөр **1+1** (buy=1, free=1) урамшуулал эсэх — сагсны 50+/100+ tier-ийг энэ мөрт **хэрэглэхгүй**.
+  static bool isBuyOneGetOnePromotionLine(SalesItem item) {
+    return resolveLinePromotion(item).isBogo;
   }
 
   /// `1+1` гэх мэт buy-free тексттэй мөр дээр `freeQuantity` алдагдсан үед ч зөв төлөх
   /// ширхэгийг ашиглана (сервер/API болон [payableLineTotalInCart]-тай нийцнэ).
   static int effectiveBillablePaidPiecesForPricing(SalesItem item) {
-    if (isLineOnlyPieceBulkTierProduct(item.productName)) {
-      return item.paidQuantity;
-    }
-    // Каталогийн нэрээр нэгдсэн текст (жишээ чикен 2.1кг → API-д promo байхгүй ч «1+1»).
-    final promoForBuyFree = mergeCatalogPromotionText(
-      item.productName,
-      item.promotionText,
-    );
-    final bf = parseBuyFree(promoForBuyFree);
-    if (bf == null) return item.paidQuantity;
-    // "50ш+ 3%, 100ш+ 5%" гэх мэтээс parseBuyFree буруу том тоо авч болно — зөвхөн жинхэнэ BOGO.
-    if (bf.buy > 20 || bf.free > 20 || bf.buy + bf.free > 40) {
-      return item.paidQuantity;
-    }
-    if (item.freeQuantity > 0) return item.paidQuantity;
-    if (item.quantity <= 0) return 0;
-    if (bf.buy == 1 && bf.free == 1) {
-      return buyOneGetOnePaidFreeFromQuantity(item.quantity).paid;
-    }
-    return billablePaidPiecesForBuyFreePhysical(
-      physicalPieces: item.quantity,
-      bf: bf,
-    ).clamp(0, item.quantity);
+    return resolveLinePromotion(item).paidPieces;
   }
 
   /// Статистик / шүүлт: зөвхөн урамшуулалтай (line-only биш) мөрүүдийн төлөх нийлбэр.
@@ -199,7 +214,6 @@ class PromotionPricingUtils {
     var s = 0;
     for (final i in items) {
       if (!i.hasPromotionBenefit) continue;
-      if (isLineOnlyPieceBulkTierProduct(i.productName)) continue;
       s += effectiveBillablePaidPiecesForPricing(i);
     }
     return s;
@@ -209,7 +223,7 @@ class PromotionPricingUtils {
   static int cartWideBillablePaidPiecesSum(Iterable<SalesItem> items) {
     var s = 0;
     for (final i in items) {
-      s += effectiveBillablePaidPiecesForPricing(i);
+      s += resolveLinePromotion(i).paidPieces;
     }
     return s;
   }
@@ -219,30 +233,38 @@ class PromotionPricingUtils {
   static double cartBulkPriceMultiplierForCartLine({
     required SalesItem item,
     required int eligiblePaidPiecesTotal,
+    bool? isBuyOneGetOne,
   }) {
     if (!item.hasPromotionBenefit) return 1.0;
-    if (isLineOnlyPieceBulkTierProduct(item.productName)) return 1.0;
-    if (isBuyOneGetOnePromotionLine(item)) return 1.0;
+    final bogo = isBuyOneGetOne ?? isBuyOneGetOnePromotionLine(item);
+    if (bogo) return 1.0;
     return cartPaidPiecesBulkPriceMultiplier(eligiblePaidPiecesTotal);
   }
 
   /// Сагсны **«Төлөх нийт»**-той мөр бүрээр тааруулах мөрийн дүн (хүснэгийн «Нийт»-ээс
   /// өөр байж болно — энэ нь сагсны bulk-ийг нэгж дээр оруулсны дараа).
+  ///
+  /// [cartWidePaidPiecesTotal] нь дуудагч [cartWideBillablePaidPiecesSum]-ээр нэг удаа
+  /// тооцоолсон tier суурь байх ёстой — энд дахин O(n) гүйлгээ хийхгүй.
   static double payableLineTotalInCart(
-    SalesItem item,
-    Iterable<SalesItem> cart, {
+    SalesItem item, {
+    required int cartWidePaidPiecesTotal,
     double noteMultiplier = 1.0,
+    int? effectivePaidPieces,
+    bool? isBuyOneGetOne,
   }) {
-    final tierBase = cartWideBillablePaidPiecesSum(cart);
+    final paid =
+        effectivePaidPieces ?? effectiveBillablePaidPiecesForPricing(item);
     final m = cartBulkPriceMultiplierForCartLine(
       item: item,
-      eligiblePaidPiecesTotal: tierBase,
+      eligiblePaidPiecesTotal: cartWidePaidPiecesTotal,
+      isBuyOneGetOne: isBuyOneGetOne,
     );
     return lineTotalFromDiscountedUnit(
       unitPrice: item.price,
       noteMultiplier: noteMultiplier,
       cartBulkMultiplier: m,
-      paidPieces: effectiveBillablePaidPiecesForPricing(item),
+      paidPieces: paid,
     );
   }
 
@@ -288,12 +310,14 @@ class PromotionPricingUtils {
   static ({int minQty, int percent})? parseBulkDiscount(String? promotionText) {
     final s = (promotionText ?? '').toLowerCase();
     if (s.trim().isEmpty) return null;
+    if (parseBuyFree(promotionText) != null) return null;
 
     final m1 = RegExp(r'(\d+)\s*(?:ш|ширхэг|pcs?)?.*?(\d+)\s*%').firstMatch(s);
     if (m1 != null) {
       final q = int.tryParse(m1.group(1) ?? '');
       final p = int.tryParse(m1.group(2) ?? '');
       if (q != null && p != null && q > 0 && p > 0) {
+        if (p < 5) return null;
         return (minQty: q, percent: p.clamp(0, 100));
       }
     }
@@ -303,6 +327,7 @@ class PromotionPricingUtils {
       final q = int.tryParse(m2.group(1) ?? '');
       final p = int.tryParse(m2.group(2) ?? '');
       if (q != null && p != null && q > 0 && p > 0) {
+        if (p < 5) return null;
         return (minQty: q, percent: p.clamp(0, 100));
       }
     }
@@ -326,6 +351,10 @@ class PromotionPricingUtils {
   }
 
   /// Нэгжийн хувь + үнэгүй ширхэг — бүх урамшууллын нэгдсэн гаралт.
+  ///
+  /// [cartWidePaidPiecesTotal]: сагсны бүх мөрийн [effectiveBillablePaidPiecesForPricing]
+  /// нийлбэр (жишээ [cartWideBillablePaidPiecesSum]) — 50+/100+ tier-ийг энд оруулна.
+  /// **1+1** мөрт tier давхардахгүй ([isBuyOneGetOnePromotionLine]-тай ижил нөхцөл).
   static PromotionDecision decide({
     required int paidPieces,
     required double baseUnitPrice,
@@ -333,8 +362,8 @@ class PromotionPricingUtils {
     String? promotionText,
     int? baseDiscountPercent,
     List<Map<String, dynamic>>? rules,
-    /// Мөрийн tier (жишээ [isLineOnlyPieceBulkTierProduct]) — нэрээр идэвхжинэ.
     String? catalogProductName,
+    int cartWidePaidPiecesTotal = 0,
   }) {
     final safePaid = paidPieces < 0 ? 0 : paidPieces;
     final safeBase = baseUnitPrice < 0 ? 0.0 : baseUnitPrice;
@@ -348,8 +377,23 @@ class PromotionPricingUtils {
       );
     }
 
+    final mergedPromotionText = mergeCatalogPromotionText(
+      (catalogProductName ?? '').trim(),
+      promotionText,
+    );
+
+    final bf = parseBuyFree(mergedPromotionText);
+    final isBogo = bf != null && bf.buy == 1 && bf.free == 1;
+
     int bestPercent = (baseDiscountPercent ?? 0).clamp(0, 100);
     int freePieces = 0;
+
+    final safeCartWide =
+        cartWidePaidPiecesTotal < 0 ? 0 : cartWidePaidPiecesTotal;
+    if (!isBogo && safeCartWide > 0) {
+      final tierPercent = cartPaidPiecesBulkDiscountPercent(safeCartWide);
+      if (tierPercent > bestPercent) bestPercent = tierPercent;
+    }
 
     if (rules != null && rules.isNotEmpty) {
       for (final r in rules) {
@@ -357,7 +401,10 @@ class PromotionPricingUtils {
         if (type == 'bulk_percent') {
           final minQty = _intish(r['minQty']) ?? 0;
           final percent = _intish(r['percent']) ?? 0;
-          if (minQty > 0 && percent > 0 && safePaid >= minQty) {
+          if (minQty > 0 &&
+              minQty < 10000 &&
+              percent > 0 &&
+              safePaid >= minQty) {
             if (percent > bestPercent) bestPercent = percent.clamp(0, 100);
           }
         } else if (type == 'percent') {
@@ -366,7 +413,11 @@ class PromotionPricingUtils {
         } else if (type == 'buy_free') {
           final buy = _intish(r['buy']) ?? 0;
           final free = _intish(r['free']) ?? 0;
-          if (buy > 0 && free > 0) {
+          if (buy > 0 &&
+              free > 0 &&
+              buy <= 20 &&
+              free <= 20 &&
+              buy + free <= 40) {
             final groups = safePaid ~/ buy;
             final f = (groups * free).clamp(0, 1 << 30);
             if (f > freePieces) freePieces = f;
@@ -376,19 +427,14 @@ class PromotionPricingUtils {
     } else {
       freePieces = freePiecesForPromotionFromPaid(
         paidPieces: safePaid,
-        promotionText: promotionText,
+        promotionText: mergedPromotionText,
       );
       bestPercent = effectiveDiscountPercent(
         paidPieces: safePaid,
-        promotionText: promotionText,
-        baseDiscountPercent: baseDiscountPercent,
+        promotionText: mergedPromotionText,
+        baseDiscountPercent: bestPercent,
         apply: true,
       );
-      final name = (catalogProductName ?? '').trim();
-      if (name.isNotEmpty && isLineOnlyPieceBulkTierProduct(name)) {
-        final tier = cartPaidPiecesBulkDiscountPercent(safePaid);
-        if (tier > bestPercent) bestPercent = tier;
-      }
     }
 
     final unitAfter = applyPercentDiscount(
@@ -413,42 +459,42 @@ class PromotionPricingUtils {
     double noteMultiplier = 1.0,
   }) {
     if (cart.isEmpty) return cart;
-    final tierBase = cartWideBillablePaidPiecesSum(cart);
-    return cart
-        .map(
-          (item) {
-            final cartBulkMult = cartBulkPriceMultiplierForCartLine(
-              item: item,
-              eligiblePaidPiecesTotal: tierBase,
-            );
-            final lineTotal = payableLineTotalInCart(
-              item,
-              cart,
-              noteMultiplier: noteMultiplier,
-            );
-            final unit = discountedUnitPrice(
-              unitPrice: item.price,
-              noteMultiplier: noteMultiplier,
-              cartBulkMultiplier: cartBulkMult,
-            );
-            return SalesItem(
-              productId: item.productId,
-              productName: item.productName,
-              price: item.price,
-              quantity: item.quantity,
-              orderedUnit: item.orderedUnit,
-              orderedQuantity: item.orderedQuantity,
-              unitsPerBox: item.unitsPerBox,
-              freeQuantity: item.freeQuantity,
-              unitPriceExcludesVat: item.unitPriceExcludesVat,
-              discountPercent: item.discountPercent,
-              promotionText: item.promotionText,
-              finalUnitPrice: unit,
-              finalLineTotal: roundMoney2(lineTotal),
-            );
-          },
-        )
-        .toList();
+    final resolved = cart.map(resolveLinePromotion).toList();
+    final paidPiecesList = resolved.map((r) => r.paidPieces).toList();
+    final tierBase =
+        paidPiecesList.fold<int>(0, (sum, p) => sum + p);
+
+    return List<SalesItem>.generate(cart.length, (i) {
+      final item = cart[i];
+      final paid = paidPiecesList[i];
+      final isBogo = resolved[i].isBogo;
+      final cartBulkMult = cartBulkPriceMultiplierForCartLine(
+        item: item,
+        eligiblePaidPiecesTotal: tierBase,
+        isBuyOneGetOne: isBogo,
+      );
+      final unit = discountedUnitPrice(
+        unitPrice: item.price,
+        noteMultiplier: noteMultiplier,
+        cartBulkMultiplier: cartBulkMult,
+      );
+      final lineTotal = roundToWholeMnt(unit * paid);
+      return SalesItem(
+        productId: item.productId,
+        productName: item.productName,
+        price: item.price,
+        quantity: item.quantity,
+        orderedUnit: item.orderedUnit,
+        orderedQuantity: item.orderedQuantity,
+        unitsPerBox: item.unitsPerBox,
+        freeQuantity: item.freeQuantity,
+        unitPriceExcludesVat: item.unitPriceExcludesVat,
+        discountPercent: item.discountPercent,
+        promotionText: item.promotionText,
+        finalUnitPrice: unit,
+        finalLineTotal: roundMoney2(lineTotal),
+      );
+    });
   }
 
   static int? _intish(dynamic v) {

@@ -12,6 +12,7 @@ import '../../models/sales_model.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../widgets/go_pop_scope.dart';
+import '../../utils/order_schedule_utils.dart';
 
 /// Нэг backend захиалга / нэг минутын legacy борлуулалтыг нэг цэг дээр нэгтгэнэ.
 List<List<Sales>> clusterSalesForMap(List<Sales> sales) {
@@ -101,9 +102,12 @@ class _SalesMapScreenState extends State<SalesMapScreen> {
         aa.day == selectedDay.day;
   }
 
-  List<Order> _ordersForSelectedDay(List<Order> all) {
+  List<Order> _ordersForSelectedDay(List<Order> all, {required String role}) {
     return all
-        .where((o) => _isSameLocalCalendarDay(o.orderDate, _selectedDate))
+        .where((o) => _isSameLocalCalendarDay(
+              OrderScheduleUtils.effectiveOrderCalendarDay(o, role: role),
+              _selectedDate,
+            ))
         .toList();
   }
 
@@ -280,7 +284,9 @@ class _SalesMapScreenState extends State<SalesMapScreen> {
 
           // 2) Orders (backend) → зөвхөн локал Sales байхгүй захиалгад л pin (хадгалсан байршилтай)
           final orderSales = <Sales>[];
-          final selectedOrders = _ordersForSelectedDay(orderProvider.orders)
+          final role = authProvider.userRole;
+          final selectedOrders =
+              _ordersForSelectedDay(orderProvider.orders, role: role)
               .where(
                 (o) => _isCurrentUsersAgent(
                   salespersonId: o.salespersonId,

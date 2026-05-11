@@ -24,9 +24,8 @@ bool shouldForceInactiveProductFromModel(Product product) {
 }
 
 bool isProductActive(Product product) {
-  // DB/API explicit inactive always wins
-  if (product.isActive == false) return false;
-
-  return true;
+  // Only treat as inactive when explicitly false.
+  // null/true => active (backend may omit the field).
+  return product.isActive != false;
 }
 

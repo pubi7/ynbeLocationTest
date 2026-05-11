@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -96,6 +97,14 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
           final all = warehouseProvider.products;
           final activeCount = all.where((p) => isProductActive(p)).length;
           final inactiveCount = all.length - activeCount;
+
+          if (kDebugMode) {
+            debugPrint('[SalesEntry][debug] products total=${all.length}');
+            for (final p in all.take(3)) {
+              debugPrint(
+                  '[SalesEntry][debug] sample: ${p.name} id=${p.id} isActive=${p.isActive}');
+            }
+          }
 
           final activeOnly =
               all.where((p) => isProductActive(p)).toList();
@@ -330,16 +339,59 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   }
 
   /// Мөрийн «Нийт» баганын нийлбэр ([PromotionPricingUtils.payableLineTotalInCart]).
-  double get _cartLineSubtotal => _selectedItems.fold(
-        0.0,
-        (sum, item) =>
-            sum +
-            PromotionPricingUtils.payableLineTotalInCart(item, _selectedItems),
+  double get _cartLineSubtotal {
+    final items = _selectedItems;
+    if (items.isEmpty) return 0;
+    final resolved =
+        items.map(PromotionPricingUtils.resolveLinePromotion).toList();
+    final paidList = resolved.map((r) => r.paidPieces).toList();
+    final tierBase = paidList.fold<int>(0, (a, b) => a + b);
+    var sum = 0.0;
+    for (var i = 0; i < items.length; i++) {
+      sum += PromotionPricingUtils.payableLineTotalInCart(
+        items[i],
+        cartWidePaidPiecesTotal: tierBase,
+        effectivePaidPieces: paidList[i],
+        isBuyOneGetOne: resolved[i].isBogo,
       );
+    }
+    return sum;
+  }
 
   /// Сагсны 50+/100+ tier суурь: бүх мөрийн төлөх ширхэгийн нийлбэр.
   int get _cartBulkTierPaidPiecesSum =>
       PromotionPricingUtils.cartWideBillablePaidPiecesSum(_selectedItems);
+
+  /// Тодорхой барааны түр мөрийг сагсанд оруулж [cartWideBillablePaidPiecesSum] тооцох.
+  int _cartWidePaidPiecesTotalWithProvisionalLine({
+    required Product p,
+    required String? mergedPromo,
+    required int physicalPieces,
+    required int replaceIndex,
+    required int unitsPerBox,
+  }) {
+    final cart = List<SalesItem>.from(_selectedItems);
+    final upb = unitsPerBox <= 0 ? 1 : unitsPerBox;
+    final line = SalesItem(
+      productId: p.id,
+      productName: p.name,
+      price: _getProductPrice(p),
+      quantity: physicalPieces,
+      orderedUnit: 'piece',
+      orderedQuantity: physicalPieces,
+      unitsPerBox: upb,
+      freeQuantity: 0,
+      unitPriceExcludesVat: p.unitPriceExcludesVat,
+      discountPercent: p.discountPercent,
+      promotionText: mergedPromo,
+    );
+    if (replaceIndex >= 0 && replaceIndex < cart.length) {
+      cart[replaceIndex] = line;
+    } else {
+      cart.add(line);
+    }
+    return PromotionPricingUtils.cartWideBillablePaidPiecesSum(cart);
+  }
 
   /// Сагсны дэлгэц: tier идэвхтэй бол хувь (эсвэл null).
   int? get _cartBulkUniformDiscountPercentForUi {
@@ -362,46 +414,48 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         (s, e) => s + e.finalLineTotal!,
       );
     }
-    final tierBase = _cartBulkTierPaidPiecesSum;
-    return _selectedItems.fold(
-      0.0,
-      (s, item) =>
-          s +
-          PromotionPricingUtils.lineTotalFromDiscountedUnit(
-            unitPrice: item.price,
-            cartBulkMultiplier:
-                PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
-              item: item,
-              eligiblePaidPiecesTotal: tierBase,
-            ),
-            paidPieces:
-                PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(
-              item,
-            ),
-          ),
-    );
+    final items = _selectedItems;
+    final resolved =
+        items.map(PromotionPricingUtils.resolveLinePromotion).toList();
+    final paidList = resolved.map((r) => r.paidPieces).toList();
+    final tierBase = paidList.fold<int>(0, (a, b) => a + b);
+    var s = 0.0;
+    for (var i = 0; i < items.length; i++) {
+      s += PromotionPricingUtils.lineTotalFromDiscountedUnit(
+        unitPrice: items[i].price,
+        cartBulkMultiplier:
+            PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+          item: items[i],
+          eligiblePaidPiecesTotal: tierBase,
+          isBuyOneGetOne: resolved[i].isBogo,
+        ),
+        paidPieces: paidList[i],
+      );
+    }
+    return s;
   }
 
   /// Баримт / eBarimt: НӨАТ орсон нийт (олон ширхэгийн хөнгөлөлтийг нэгж дээр тооцсон).
   double get _receiptGrossTotal {
-    final tierBase = _cartBulkTierPaidPiecesSum;
-    return _selectedItems.fold(
-      0.0,
-      (s, item) =>
-          s +
-          PromotionPricingUtils.lineTotalFromDiscountedUnit(
-            unitPrice: item.receiptUnitGross,
-            cartBulkMultiplier:
-                PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
-              item: item,
-              eligiblePaidPiecesTotal: tierBase,
-            ),
-            paidPieces:
-                PromotionPricingUtils.effectiveBillablePaidPiecesForPricing(
-              item,
-            ),
-          ),
-    );
+    final items = _selectedItems;
+    final resolved =
+        items.map(PromotionPricingUtils.resolveLinePromotion).toList();
+    final paidList = resolved.map((r) => r.paidPieces).toList();
+    final tierBase = paidList.fold<int>(0, (a, b) => a + b);
+    var s = 0.0;
+    for (var i = 0; i < items.length; i++) {
+      s += PromotionPricingUtils.lineTotalFromDiscountedUnit(
+        unitPrice: items[i].receiptUnitGross,
+        cartBulkMultiplier:
+            PromotionPricingUtils.cartBulkPriceMultiplierForCartLine(
+          item: items[i],
+          eligiblePaidPiecesTotal: tierBase,
+          isBuyOneGetOne: resolved[i].isBogo,
+        ),
+        paidPieces: paidList[i],
+      );
+    }
+    return s;
   }
 
   void _addProductToCart() {
@@ -450,15 +504,22 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       );
     }
 
+    final existingIndex = _selectedItems.indexWhere((it) => it.productId == p.id);
+    final mergedPhysical = existingIndex >= 0
+        ? _selectedItems[existingIndex].quantity + paidPiecesInput
+        : paidPiecesInput;
+    final cartWideTier = _cartWidePaidPiecesTotalWithProvisionalLine(
+      p: p,
+      mergedPromo: mergedPromo,
+      physicalPieces: existingIndex >= 0 ? mergedPhysical : paidPiecesInput,
+      replaceIndex: existingIndex,
+      unitsPerBox: upb,
+    );
+
     // Local stock check (best-effort) so user sees immediate feedback.
     final stock = p.stockQuantity;
     if (stock != null) {
-      final existingIndexForStock =
-          _selectedItems.indexWhere((it) => it.productId == p.id);
       // Нийт **физ** ширхэг; buy+free акцид `decide`-д төлөх тоог тусад нь хувиргана.
-      final mergedPhysical = existingIndexForStock >= 0
-          ? _selectedItems[existingIndexForStock].quantity + paidPiecesInput
-          : paidPiecesInput;
       final mergedPaidForDecide = billablePaidForDecide(mergedPhysical);
       final decisionForStock = PromotionPricingUtils.decide(
         paidPieces: mergedPaidForDecide,
@@ -467,6 +528,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         baseDiscountPercent: p.discountPercent,
         apply: applyPromo,
         catalogProductName: p.name,
+        cartWidePaidPiecesTotal: cartWideTier,
       );
       final requestedTotal = decisionForStock.totalPieces;
       if (requestedTotal > stock) {
@@ -493,20 +555,16 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       baseDiscountPercent: p.discountPercent,
       apply: applyPromo,
       catalogProductName: p.name,
+      cartWidePaidPiecesTotal: cartWideTier,
     );
     final dp = applyPromo ? decision.appliedDiscountPercent : 0;
     final effectiveUnitPrice = decision.unitPriceAfterDiscount;
     final quantity = decision.totalPieces;
 
     // Ижил бараа байвал тоог нэмэх
-    final existingIndex = _selectedItems.indexWhere(
-      (item) => item.productId == p.id,
-    );
-
     if (existingIndex >= 0) {
       // Ижил бараа байвал тоог нэмэх
       final existingItem = _selectedItems[existingIndex];
-      final mergedPhysical = existingItem.quantity + paidPiecesInput;
       final totalPaidForDecide = billablePaidForDecide(mergedPhysical);
       final d2 = PromotionPricingUtils.decide(
         paidPieces: totalPaidForDecide,
@@ -515,6 +573,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         baseDiscountPercent: p.discountPercent,
         apply: applyPromo,
         catalogProductName: p.name,
+        cartWidePaidPiecesTotal: cartWideTier,
       );
       final newQty = d2.totalPieces;
       final newFree = d2.freePieces.clamp(0, newQty);
@@ -617,9 +676,6 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     if (PromotionPricingUtils.parseBulkDiscount(p.promotionText) != null) {
       return true;
     }
-    if (PromotionPricingUtils.isLineOnlyPieceBulkTierProduct(p.name)) {
-      return true;
-    }
     if ((p.promotionText ?? '').trim().isNotEmpty) return true;
     return false;
   }
@@ -653,13 +709,17 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
           ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
         final filterController = TextEditingController();
+        var promoOnly = false;
 
         return StatefulBuilder(
           builder: (sheetCtx, setModal) {
             final q = filterController.text.trim().toLowerCase();
+            final baseFiltered = promoOnly
+                ? allItems.where(_catalogPromotionLikelyEnabled).toList()
+                : allItems;
             final items = q.isEmpty
-                ? allItems
-                : allItems.where((p) {
+                ? baseFiltered
+                : baseFiltered.where((p) {
                     return p.name.toLowerCase().contains(q) ||
                         (p.barcode ?? '').toLowerCase().contains(q) ||
                         (p.productCode ?? '').toLowerCase().contains(q);
@@ -724,6 +784,25 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                           border: const OutlineInputBorder(),
                         ),
                         onChanged: (_) => setModal(() {}),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          FilterChip(
+                            label: const Text('Хямдралтай'),
+                            selected: promoOnly,
+                            onSelected: (v) => setModal(() => promoOnly = v),
+                          ),
+                          Text(
+                            promoOnly
+                                ? 'Илэрц: ${items.length} (хямдралтай)'
+                                : 'Илэрц: ${items.length}',
+                            style: TextStyle(color: Colors.grey[700]),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
                       Expanded(
@@ -1312,7 +1391,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       }
 
       // Хадгалахын өмнө серверээс хамгийн сүүлийн үлдэгдэл/барааны жагсаалт татаж шалгана.
-      await warehouseProvider.refreshProducts();
+      await warehouseProvider.refreshProducts(includeInactive: true);
       if (!mounted) return null;
       final refreshErr = warehouseProvider.error;
       if (refreshErr != null && refreshErr.trim().isNotEmpty) {
@@ -1342,7 +1421,9 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
 
       final productProvider =
           Provider.of<ProductProvider>(context, listen: false);
-      productProvider.setProducts(warehouseProvider.products);
+      productProvider.setProducts(
+        warehouseProvider.products.where((p) => isProductActive(p)).toList(),
+      );
 
       for (final cart in _selectedItems) {
         final p = productProvider.getProductById(cart.productId);
@@ -1425,8 +1506,15 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
 
       // Create order via warehouse backend API
       // Backend uses JWT token's userId as agentId (= mobile logged-in user's ID).
-      // Mobile: do not send deliveryDate — backend keeps the real order day only
-      // (no role-based +1/+2 stored as a separate delivery day).
+      // orderAcceptanceDate = локал «авсан өдөр» (YYYY-MM-DD); прокси нь orderDate-ийг
+      // бүртгэсэн UTC цагаар, deliveryDate-ийг acceptance + role-оор тооцно.
+      final role = authProvider.userRole;
+      final now = DateTime.now();
+      final addDays =
+          isManagerRole(role) ? 0 : (now.weekday == DateTime.saturday ? 2 : 1);
+      final orderAcceptanceYmd = OrderScheduleUtils.localCalendarDayYyyyMmDd(
+        now.add(Duration(days: addDays)),
+      );
       final result =
           await WarehouseOrderBackendSubmitOneFile.createOrderWith429Retry(
         () => warehouseProvider.createOrder(
@@ -1436,6 +1524,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
           paymentMethod: backendPaymentMethod,
           notes: notes.isEmpty ? null : notes,
           deliveryDate: null,
+          orderAcceptanceDate: orderAcceptanceYmd,
           allowInsufficientStock: false,
         ),
       );
@@ -1475,6 +1564,12 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
           final orderProvider =
               Provider.of<OrderProvider>(context, listen: false);
           await orderProvider.fetchOrders(warehouseProvider.dio);
+          if (orderId != null) {
+            orderProvider.patchOrderFreeQuantitiesFromCart(
+              orderId: orderId.toString(),
+              cart: pricedCart,
+            );
+          }
           debugPrint('📋 Захиалгын жагсаалт шинэчлэгдлээ');
         }
       } catch (e) {
@@ -1797,13 +1892,8 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                                 final dp =
                                                     (p.discountPercent ?? 0);
                                                 final hasDiscount = dp > 0;
-                                                final hasLinePieceBulk =
-                                                    PromotionPricingUtils
-                                                        .isLineOnlyPieceBulkTierProduct(
-                                                            p.name);
                                                 final hasPromo = hasOnePlusOne ||
-                                                    hasDiscount ||
-                                                    hasLinePieceBulk;
+                                                    hasDiscount;
                                                 if (!hasPromo) {
                                                   return const SizedBox.shrink();
                                                 }
@@ -1833,14 +1923,6 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                                   if (bulk != null) {
                                                     parts.add(
                                                       '${bulk.minQty} ширхэг авбал -${bulk.percent}%',
-                                                    );
-                                                  }
-
-                                                  if (PromotionPricingUtils
-                                                      .isLineOnlyPieceBulkTierProduct(
-                                                          p.name)) {
-                                                    parts.add(
-                                                      '50 ш+ -3%, 100 ш+ -5%',
                                                     );
                                                   }
 
@@ -1969,6 +2051,35 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                                         _productUsePromotion[
                                                                 p.id] ==
                                                             true;
+                                                    final previewMerged =
+                                                        PromotionPricingUtils
+                                                            .mergeCatalogPromotionText(
+                                                      p.name,
+                                                      p.promotionText,
+                                                    );
+                                                    final previewIdx =
+                                                        _selectedItems
+                                                            .indexWhere(
+                                                      (it) =>
+                                                          it.productId == p.id,
+                                                    );
+                                                    final previewMergedPhys =
+                                                        previewIdx >= 0
+                                                            ? _selectedItems[
+                                                                        previewIdx]
+                                                                    .quantity +
+                                                                pieces
+                                                            : pieces;
+                                                    final tierPreview =
+                                                        _cartWidePaidPiecesTotalWithProvisionalLine(
+                                                      p: p,
+                                                      mergedPromo:
+                                                          previewMerged,
+                                                      physicalPieces:
+                                                          previewMergedPhys,
+                                                      replaceIndex: previewIdx,
+                                                      unitsPerBox: upb,
+                                                    );
                                                     final d =
                                                         PromotionPricingUtils
                                                             .decide(
@@ -1976,12 +2087,14 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                                                       baseUnitPrice:
                                                           _getProductPrice(p),
                                                       promotionText:
-                                                          p.promotionText,
+                                                          previewMerged,
                                                       baseDiscountPercent:
                                                           p.discountPercent,
                                                       apply: applyPromo,
                                                       catalogProductName:
                                                           p.name,
+                                                      cartWidePaidPiecesTotal:
+                                                          tierPreview,
                                                     );
                                                     final unitPrice =
                                                         d.unitPriceAfterDiscount;

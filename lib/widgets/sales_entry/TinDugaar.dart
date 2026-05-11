@@ -78,16 +78,18 @@ class TinDugaarService {
 
   /// Backend proxy URL - server.js (port 3000) дээр getTinInfo байдаг
   Future<String> _getEbarimtBackendUrl() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString('warehouse_api_base_url');
     String base = ApiConfig.backendServerUrl;
-    if (saved != null && saved.trim().isNotEmpty) {
-      var s = saved.trim();
-      if (s.endsWith('/')) s = s.substring(0, s.length - 1);
-      if (s.toLowerCase().endsWith('/api')) s = s.substring(0, s.length - 4);
-      final uri = Uri.tryParse(s);
-      if (uri != null && uri.host.isNotEmpty) {
-        base = '${uri.scheme}://${uri.host}:${uri.port}';
+    if (ApiConfig.allowWarehouseUrlOverride) {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('warehouse_api_base_url');
+      if (saved != null && saved.trim().isNotEmpty) {
+        var s = saved.trim();
+        if (s.endsWith('/')) s = s.substring(0, s.length - 1);
+        if (s.toLowerCase().endsWith('/api')) s = s.substring(0, s.length - 4);
+        final uri = Uri.tryParse(s);
+        if (uri != null && uri.host.isNotEmpty) {
+          base = '${uri.scheme}://${uri.host}:${uri.port}';
+        }
       }
     }
     if (base.isEmpty) return '';
@@ -159,7 +161,8 @@ class TinDugaarService {
       if (backendUrl.isEmpty) {
         return GetTinInfoResult(
           success: false,
-          message: 'Server URL тохируулна уу (Settings эсвэл нэвтрэх дэлгэц).',
+          message:
+              'Серверийн холболт тохируулаагүй байна. Дахин нэвтэрч оролдоно уу.',
         );
       }
       final url = Uri.parse('$backendUrl/getTinInfo').replace(
@@ -182,7 +185,7 @@ class TinDugaarService {
         return GetTinInfoResult(
           success: false,
           message:
-              'Нэвтрэх шаардлагатай. Settings дээр холбогдоод дахин оролдоно уу.',
+              'Нэвтрэх шаардлагатай. Дахин нэвтэрч оролдоно уу.',
         );
       }
       return _parseTinResponse(response.body, regNo);

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config/api_config.dart';
 import '../models/product_model.dart';
 import '../models/shop_model.dart';
 import '../services/sugalaanii_dugaar.dart';
@@ -56,8 +57,11 @@ class WarehouseProvider extends ChangeNotifier {
       debugPrint('Already loading, skipping API URL update');
       return;
     }
-    await _bridge.setApiBaseUrl(input);
-    await _bridge.saveApiBaseUrl(input);
+    final effective = ApiConfig.allowWarehouseUrlOverride
+        ? input
+        : ApiConfig.backendServerUrl;
+    await _bridge.setApiBaseUrl(effective);
+    await _bridge.saveApiBaseUrl(effective);
     notifyListeners();
   }
 
@@ -71,9 +75,6 @@ class WarehouseProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Add small delay to prevent rapid-fire requests
-      await Future.delayed(const Duration(milliseconds: 300));
-
       final token =
           await _bridge.login(identifier: identifier, password: password);
       _token = token;
@@ -103,7 +104,13 @@ class WarehouseProvider extends ChangeNotifier {
 
   /// Connect using an existing token (e.g. from MobileUserLoginProvider).
   /// This avoids a second login API call and uses the same user session.
-  Future<bool> connectWithExistingToken({AuthProvider? authProvider}) async {
+  ///
+  /// [fetchProfile]: false бол `GET auth/profile` дахин дуудахгүй — [MobileUserLoginProvider]
+  /// аль хэдийн профайл татсан үед нэвтрэхийг хурдан болгоно.
+  Future<bool> connectWithExistingToken({
+    AuthProvider? authProvider,
+    bool fetchProfile = true,
+  }) async {
     _loading = true;
     _error = null;
     notifyListeners();
@@ -119,8 +126,7 @@ class WarehouseProvider extends ChangeNotifier {
       // Make sure the token is set on the Dio instance
       _bridge.setToken(_token!);
 
-      // Fetch user profile and update AuthProvider
-      if (authProvider != null) {
+      if (fetchProfile && authProvider != null) {
         await _fetchAndUpdateProfile(authProvider, '');
       }
 
@@ -148,7 +154,6 @@ class WarehouseProvider extends ChangeNotifier {
   Future<void> _fetchAndUpdateProfile(
       AuthProvider authProvider, String fallbackEmail) async {
     try {
-      await Future.delayed(const Duration(milliseconds: 200));
       final profileData = await _bridge.getProfile();
       final rawUser = profileData['user'] ?? profileData['employee'];
       final Map<String, dynamic>? userData;
@@ -298,6 +303,60 @@ class WarehouseProvider extends ChangeNotifier {
     }
   }
 
+  /// Нэвтрэх дараах нэг удаагийн ачаалал: бараа + дэлгүүр **зэрэгцээ** (нэг `_loading` мөргөлдөөнгүй).
+  Future<void> refreshCatalogAfterLogin({
+    bool includeInactiveProducts = false,
+    int shopPageSize = 200,
+  }) async {
+    if (!_connected) return;
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final results = await Future.wait([
+        _bridge.fetchAllProducts(includeInactive: includeInactiveProducts),
+        _bridge.fetchAllShops(pageSize: shopPageSize),
+      ]);
+      final fetched = results[0] as List<Product>;
+      final shopList = results[1] as List<Shop>;
+
+      var nextProducts = fetched;
+      if (!includeInactiveProducts) {
+        nextProducts = nextProducts.where((p) => isProductActive(p)).toList();
+      }
+      _products = nextProducts;
+      _shops = shopList;
+
+      if (kDebugMode) {
+        debugPrint(
+          '[WarehouseProvider] login catalog: products=${_products.length} shops=${_shops.length}',
+        );
+      }
+    } catch (e) {
+      if (e is DioException && e.response?.statusCode == 401) {
+        if (kDebugMode) {
+          debugPrint('[WarehouseProvider] 401 Unauthorized - disconnecting');
+        }
+        await disconnect();
+        return;
+      }
+      if (e is DioException && e.response?.statusCode == 429) {
+        _error = 'Хэт олон хүсэлт илгээсэн. Түр хүлээгээд дахин оролдоно уу.';
+      } else {
+        final errorMsg = e.toString();
+        if (kDebugMode) {
+          debugPrint('[WarehouseProvider] [err] refreshCatalogAfterLogin: $errorMsg');
+        }
+        _error =
+            'Бараа/дэлгүүрийн мэдээлэл авахад алдаа: ${e is DioException ? (e.response?.data?['message'] ?? errorMsg) : errorMsg}';
+      }
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> refreshShops(
       {int pageSize = 200, AuthProvider? authProvider}) async {
     if (!_connected) return;
@@ -306,9 +365,6 @@ class WarehouseProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Add delay to prevent rate limiting
-      await Future.delayed(const Duration(milliseconds: 300));
-
       // GET /api/customers — `forAllAgents` + `includeAllCustomers` query (bridge)
       // нэмэгдсэн; бүх дэлгүүрийг авахын тулд backend эдгээр түлхүүрийг дэмжих ёстой.
       _shops = await _bridge.fetchAllShops(pageSize: pageSize);
@@ -356,6 +412,7 @@ class WarehouseProvider extends ChangeNotifier {
     String? paymentMethod,
     String? notes,
     String? deliveryDate,
+    String? orderAcceptanceDate,
     int? creditTermDays,
     bool allowInsufficientStock =
         false, // Үлдэгдэл хүрэлцэхгүй ч захиалга үүсгэх
@@ -372,6 +429,7 @@ class WarehouseProvider extends ChangeNotifier {
         paymentMethod: paymentMethod,
         notes: notes,
         deliveryDate: deliveryDate,
+        orderAcceptanceDate: orderAcceptanceDate,
         creditTermDays: creditTermDays,
         allowInsufficientStock: allowInsufficientStock,
       );

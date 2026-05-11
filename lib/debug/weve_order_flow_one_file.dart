@@ -38,6 +38,7 @@ class WeveOrderFlowOneFile {
     String? paymentMethod,
     String? notes,
     String? deliveryDate,
+    String? orderAcceptanceDate,
     int? creditTermDays,
     bool allowInsufficientStock = false,
     String? userWeveToken,
@@ -50,6 +51,9 @@ class WeveOrderFlowOneFile {
       if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
       if (deliveryDate != null && deliveryDate.trim().isNotEmpty)
         'deliveryDate': deliveryDate.trim(),
+      if (orderAcceptanceDate != null &&
+          orderAcceptanceDate.trim().isNotEmpty)
+        'orderAcceptanceDate': orderAcceptanceDate.trim(),
       if (creditTermDays != null) 'creditTermDays': creditTermDays,
       if (userWeveToken != null) 'userWeveToken': userWeveToken,
       'allowInsufficientStock': allowInsufficientStock,

@@ -2,8 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const {
-    computeDeliveryDateForWeb,
+    computeDeliveryDateFromAcceptanceYmd,
     getRoleFromRequest,
+    yyyyMmDd,
+    parseYyyyMmDdLocal,
 } = require('./weve_order_schedule');
 
 const app = express();
@@ -344,28 +346,50 @@ app.post('/api/orders', async (req, res) => {
         items,
         orderType,
         paymentMethod,
-        deliveryDate,
+        deliveryDate: _clientDeliveryDateIgnored,
+        orderAcceptanceDate,
         creditTermDays,
         allowInsufficientStock,
         notes,
         userWeveToken,
     } = req.body;
-    
+
     try {
-        // Mobile: хүргэлтийн өдөр = сервер дээр захиалга авсан өдөр (orderDate-ийн өдөр).
-        // deliveryDate ирсэн ч гэсэн нэг мөр логик: orderDate өдөртэй тэнцүү болгоно.
-        const orderDateIso = new Date().toISOString();
-        const receivedDay = orderDateIso.slice(0, 10); // YYYY-MM-DD
-        const computedDeliveryDate = receivedDay;
+        // «Захиалгын өдөр» хоёр утга:
+        // - orderDate / order_date / recordedAt = прокси дээр захиалгыг хүлээн авч upstream руу
+        //   илгээж буй **яг одоогийн UTC ISO** (бүртгэгдсэн цаг).
+        // - orderAcceptanceDate (YYYY-MM-DD) = клиентийн **локал хуанлийн авсан өдөр**; энэ суурь +
+        //   JWT role-оор deliveryDate / delivery_date тооцно ([computeDeliveryDateFromAcceptanceYmd]).
+        const recordedAtIso = new Date().toISOString();
+        const role = getRoleFromRequest(req);
+        const rawAccept = orderAcceptanceDate;
+        const hasExplicitAcceptance =
+            typeof rawAccept === 'string' &&
+            /^\d{4}-\d{2}-\d{2}$/.test(String(rawAccept).trim());
+        const acceptanceYmd = hasExplicitAcceptance
+            ? String(rawAccept).trim()
+            : recordedAtIso.slice(0, 10);
+
+        const acceptanceBase =
+            parseYyyyMmDdLocal(acceptanceYmd) || new Date(recordedAtIso);
+        let finalDeliveryDate =
+            computeDeliveryDateFromAcceptanceYmd(role, acceptanceYmd);
+        if (!finalDeliveryDate) {
+            finalDeliveryDate = yyyyMmDd(acceptanceBase);
+        }
 
         const orderData = {
             customerId: customerId,
             items: normalizeOrderItemsForWarehouse(items || []),
             orderType: orderType || 'Store',
             paymentMethod: paymentMethod || 'Cash',
-            deliveryDate: computedDeliveryDate || null,
+            deliveryDate: finalDeliveryDate,
+            delivery_date: finalDeliveryDate,
             creditTermDays: creditTermDays || null,
-            orderDate: orderDateIso,
+            orderDate: recordedAtIso,
+            order_date: recordedAtIso,
+            recordedAt: recordedAtIso,
+            orderAcceptanceDate: acceptanceYmd,
             source: 'aguulga3',
             allowInsufficientStock: allowInsufficientStock === true,
             ...(typeof notes === 'string' && notes.trim() !== '' ? { notes: notes.trim() } : {}),
